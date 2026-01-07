@@ -1,0 +1,8 @@
+{
+  "jupyter.lab.shortcuts": [],
+  "title": "jupyter-projspec",
+  "description": "jupyter-projspec settings.",
+  "type": "object",
+  "properties": {},
+  "additionalProperties": false
+}

@@ -1,0 +1,17 @@
+# Changes here will be overwritten by Copier; NEVER EDIT MANUALLY
+_commit: v4.5.1
+_src_path: https://github.com/jupyterlab/extension-template
+author_email: ktaletskiy@anaconda.com
+author_name: fsspec Contributors
+create_claude_symlink: false
+create_gemini_symlink: false
+has_ai_rules: true
+has_binder: true
+has_settings: true
+kind: frontend-and-server
+labextension_name: jupyter-projspec
+project_short_description: A Jupyter interface for projspec
+python_name: jupyter_projspec
+repository: https://github.com/fsspec/jupyter-projspec
+test: true
+
