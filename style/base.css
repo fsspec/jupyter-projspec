@@ -37,4 +37,235 @@
   border-radius: 4px;
   word-break: break-all;
   line-height: 1.4;
+  margin-bottom: 12px;
 }
+
+/* Loading State */
+
+.jp-projspec-Panel-loading {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 16px;
+  color: var(--jp-ui-font-color2);
+  font-size: var(--jp-ui-font-size1);
+}
+
+.jp-projspec-Panel-spinner {
+  width: 16px;
+  height: 16px;
+  border: 2px solid var(--jp-border-color2);
+  border-top-color: var(--jp-brand-color1);
+  border-radius: 50%;
+  animation: jp-projspec-spin 0.8s linear infinite;
+}
+
+@keyframes jp-projspec-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* Error State */
+
+.jp-projspec-Panel-error {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 12px;
+  background: var(--jp-error-color3, rgba(255, 0, 0, 0.1));
+  border: 1px solid var(--jp-error-color1, #d32f2f);
+  border-radius: 4px;
+  color: var(--jp-error-color1, #d32f2f);
+  font-size: var(--jp-ui-font-size1);
+  line-height: 1.4;
+}
+
+.jp-projspec-Panel-error-icon {
+  flex-shrink: 0;
+}
+
+/* Message State (no project detected, etc.) */
+
+.jp-projspec-Panel-message {
+  padding: 16px;
+  color: var(--jp-ui-font-color2);
+  font-size: var(--jp-ui-font-size1);
+  text-align: center;
+}
+
+.jp-projspec-Panel-message p {
+  margin: 0 0 8px 0;
+}
+
+.jp-projspec-Panel-message p:last-child {
+  margin-bottom: 0;
+}
+
+/* Projspec Output Container */
+
+.jp-projspec-Panel-projspec {
+  font-size: var(--jp-ui-font-size1);
+  line-height: 1.5;
+}
+
+/* No Project Detected Message */
+
+.jp-projspec-no-project {
+  padding: 16px;
+  background: var(--jp-layout-color2);
+  border-radius: 4px;
+  color: var(--jp-ui-font-color2);
+  text-align: center;
+}
+
+.jp-projspec-no-project p {
+  margin: 0 0 8px 0;
+}
+
+.jp-projspec-no-project p:last-child {
+  margin-bottom: 0;
+}
+
+/* Projspec HTML Output Styling */
+
+/* Style details/summary elements for expandable sections */
+.jp-projspec-Panel-projspec details {
+  margin: 4px 0;
+  border-left: 2px solid var(--jp-border-color2);
+  padding-left: 8px;
+}
+
+.jp-projspec-Panel-projspec details[open] {
+  border-left-color: var(--jp-brand-color1);
+}
+
+.jp-projspec-Panel-projspec summary {
+  cursor: pointer;
+  padding: 4px 0;
+  font-weight: 500;
+  color: var(--jp-ui-font-color0);
+  user-select: none;
+  list-style-position: outside;
+  margin-left: 0;
+}
+
+.jp-projspec-Panel-projspec summary:hover {
+  color: var(--jp-brand-color1);
+}
+
+.jp-projspec-Panel-projspec summary::marker {
+  color: var(--jp-ui-font-color2);
+}
+
+/* Style nested content */
+.jp-projspec-Panel-projspec details > div,
+.jp-projspec-Panel-projspec details > ul,
+.jp-projspec-Panel-projspec details > ol {
+  padding: 4px 0 4px 8px;
+}
+
+/* Style lists */
+.jp-projspec-Panel-projspec ul,
+.jp-projspec-Panel-projspec ol {
+  margin: 4px 0;
+  padding-left: 20px;
+}
+
+.jp-projspec-Panel-projspec li {
+  margin: 2px 0;
+  color: var(--jp-ui-font-color1);
+}
+
+/* Style code elements */
+.jp-projspec-Panel-projspec code {
+  font-family: var(--jp-code-font-family);
+  font-size: var(--jp-code-font-size);
+  background: var(--jp-layout-color2);
+  padding: 1px 4px;
+  border-radius: 2px;
+  color: var(--jp-mirror-editor-variable-color, var(--jp-ui-font-color0));
+}
+
+/* Style links */
+.jp-projspec-Panel-projspec a {
+  color: var(--jp-content-link-color);
+  text-decoration: none;
+}
+
+.jp-projspec-Panel-projspec a:hover {
+  text-decoration: underline;
+}
+
+/* Style tables */
+.jp-projspec-Panel-projspec table {
+  border-collapse: collapse;
+  width: 100%;
+  margin: 8px 0;
+  font-size: var(--jp-ui-font-size0);
+}
+
+.jp-projspec-Panel-projspec th,
+.jp-projspec-Panel-projspec td {
+  padding: 4px 8px;
+  text-align: left;
+  border: 1px solid var(--jp-border-color2);
+}
+
+.jp-projspec-Panel-projspec th {
+  background: var(--jp-layout-color2);
+  font-weight: 600;
+  color: var(--jp-ui-font-color0);
+}
+
+.jp-projspec-Panel-projspec tr:nth-child(even) {
+  background: var(--jp-layout-color2);
+}
+
+/* Style paragraphs */
+.jp-projspec-Panel-projspec p {
+  margin: 4px 0;
+}
+
+/* Style strong/bold text */
+.jp-projspec-Panel-projspec strong,
+.jp-projspec-Panel-projspec b {
+  font-weight: 600;
+  color: var(--jp-ui-font-color0);
+}
+
+/* Style emphasized text */
+.jp-projspec-Panel-projspec em,
+.jp-projspec-Panel-projspec i {
+  font-style: italic;
+}
+
+/* Style pre/formatted blocks */
+.jp-projspec-Panel-projspec pre {
+  font-family: var(--jp-code-font-family);
+  font-size: var(--jp-code-font-size);
+  background: var(--jp-layout-color2);
+  padding: 8px;
+  border-radius: 4px;
+  overflow-x: auto;
+  margin: 8px 0;
+}
+
+/* Style headings if present */
+.jp-projspec-Panel-projspec h1,
+.jp-projspec-Panel-projspec h2,
+.jp-projspec-Panel-projspec h3,
+.jp-projspec-Panel-projspec h4,
+.jp-projspec-Panel-projspec h5,
+.jp-projspec-Panel-projspec h6 {
+  margin: 8px 0 4px 0;
+  color: var(--jp-ui-font-color0);
+  font-weight: 600;
+}
+
+.jp-projspec-Panel-projspec h1 { font-size: 1.3em; }
+.jp-projspec-Panel-projspec h2 { font-size: 1.2em; }
+.jp-projspec-Panel-projspec h3 { font-size: 1.1em; }
+.jp-projspec-Panel-projspec h4,
+.jp-projspec-Panel-projspec h5,
+.jp-projspec-Panel-projspec h6 { font-size: 1em; }
