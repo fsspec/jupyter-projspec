@@ -1,43 +1,55 @@
 import {
+  ILayoutRestorer,
   JupyterFrontEnd,
   JupyterFrontEndPlugin
 } from '@jupyterlab/application';
+import { IDefaultFileBrowser } from '@jupyterlab/filebrowser';
+import { listIcon } from '@jupyterlab/ui-components';
 
-import { ISettingRegistry } from '@jupyterlab/settingregistry';
+import { ProjspecPanel } from './widgets/ProjspecPanel';
 
-import { requestAPI } from './request';
+/**
+ * The plugin ID for jupyter-projspec.
+ */
+const PLUGIN_ID = 'jupyter-projspec:plugin';
 
 /**
  * Initialization data for the jupyter-projspec extension.
  */
 const plugin: JupyterFrontEndPlugin<void> = {
-  id: 'jupyter-projspec:plugin',
+  id: PLUGIN_ID,
   description: 'A Jupyter interface for projspec',
   autoStart: true,
-  optional: [ISettingRegistry],
-  activate: (app: JupyterFrontEnd, settingRegistry: ISettingRegistry | null) => {
-    console.log('JupyterLab extension jupyter-projspec is activated!');
+  requires: [IDefaultFileBrowser],
+  optional: [ILayoutRestorer],
+  activate: (
+    app: JupyterFrontEnd,
+    fileBrowser: IDefaultFileBrowser,
+    restorer: ILayoutRestorer | null
+  ) => {
+    // Create the projspec panel widget
+    const panel = new ProjspecPanel();
+    panel.title.icon = listIcon;
 
-    if (settingRegistry) {
-      settingRegistry
-        .load(plugin.id)
-        .then(settings => {
-          console.log('jupyter-projspec settings loaded:', settings.composite);
-        })
-        .catch(reason => {
-          console.error('Failed to load settings for jupyter-projspec.', reason);
-        });
+    // Function to update the panel with the current path
+    const updatePath = () => {
+      const path = fileBrowser.model.path;
+      panel.updatePath(path);
+    };
+
+    // Set initial path
+    updatePath();
+
+    // Subscribe to path changes in the file browser
+    fileBrowser.model.pathChanged.connect(updatePath);
+
+    // Add the panel to the right sidebar
+    app.shell.add(panel, 'right', { rank: 1000 });
+
+    // Restore the widget state if a restorer is available
+    if (restorer) {
+      restorer.add(panel, 'projspec-panel');
     }
-
-    requestAPI<any>('hello')
-      .then(data => {
-        console.log(data);
-      })
-      .catch(reason => {
-        console.error(
-          `The jupyter_projspec server extension appears to be missing.\n${reason}`
-        );
-      });
   }
 };
 
