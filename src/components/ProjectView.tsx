@@ -7,13 +7,21 @@ import { SpecItem } from './SpecItem';
  */
 interface IProjectViewProps {
   project: IProject;
+  /** Spec name to expand (e.g., 'python_library'). */
+  expandedSpecName?: string | null;
+  /** Unique ID that changes on each expand request. */
+  expandRequestId?: number;
 }
 
 /**
  * Component for rendering the project overview.
  * Shows the list of detected specs (project types).
  */
-export function ProjectView({ project }: IProjectViewProps): React.ReactElement {
+export function ProjectView({
+  project,
+  expandedSpecName,
+  expandRequestId
+}: IProjectViewProps): React.ReactElement {
   const specs = project.specs ?? {};
   const specNames = Object.keys(specs);
 
@@ -37,7 +45,13 @@ export function ProjectView({ project }: IProjectViewProps): React.ReactElement 
       </div>
       <div className="jp-projspec-specs-list">
         {specNames.map(specName => (
-          <SpecItem key={specName} name={specName} spec={specs[specName]} />
+          <SpecItem
+            key={specName}
+            name={specName}
+            spec={specs[specName]}
+            forceExpanded={specName === expandedSpecName}
+            expandRequestId={expandRequestId}
+          />
         ))}
       </div>
     </div>

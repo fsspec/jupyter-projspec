@@ -22,6 +22,10 @@ interface IPanelState {
  */
 interface IProjspecPanelComponentProps {
   path: string;
+  /** Spec name to expand (e.g., 'python_library'). */
+  expandedSpecName?: string | null;
+  /** Unique ID that changes on each expand request, ensures expansion always triggers. */
+  expandRequestId?: number;
 }
 
 /**
@@ -59,7 +63,9 @@ function ErrorDisplay({ message }: { message: string }): React.ReactElement {
  * Main panel component that renders projspec data using React.
  */
 export function ProjspecPanelComponent({
-  path
+  path,
+  expandedSpecName,
+  expandRequestId
 }: IProjspecPanelComponentProps): React.ReactElement {
   const [state, setState] = React.useState<IPanelState>({
     loading: true,
@@ -192,7 +198,11 @@ export function ProjspecPanelComponent({
       {!state.loading && state.error && <ErrorDisplay message={state.error} />}
 
       {!state.loading && !state.error && state.project && (
-        <ProjectView project={state.project} />
+        <ProjectView
+          project={state.project}
+          expandedSpecName={expandedSpecName}
+          expandRequestId={expandRequestId}
+        />
       )}
     </div>
   );

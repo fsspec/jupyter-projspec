@@ -1,7 +1,8 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { ISpec } from '../types';
 import { ContentsView } from './ContentsView';
 import { ArtifactsView } from './ArtifactsView';
+import { getSpecInfo, getTextColorForBackground } from '../specInfo';
 
 /**
  * Props for the SpecItem component.
@@ -10,130 +11,10 @@ interface ISpecItemProps {
   name: string;
   spec: ISpec;
   defaultExpanded?: boolean;
-}
-
-/**
- * Display names for spec types.
- *
- * Maps projspec snake_case identifiers to human-readable names.
- * When adding new specs to projspec, add corresponding entries here.
- *
- * To find all spec types in projspec, run:
- *   grep -r "class.*ProjectSpec" /path/to/projspec/src/projspec/proj/
- */
-const SPEC_DISPLAY_NAMES: Record<string, string> = {
-  // Version control
-  git_repo: 'Git Repository',
-
-  // Python ecosystem
-  python_library: 'Python Library',
-  python_code: 'Python Code',
-  poetry: 'Poetry',
-  uv: 'uv',
-  uv_script: 'uv Script',
-  pixi: 'Pixi',
-  conda_project: 'Conda Project',
-  conda_recipe: 'Conda Recipe',
-  py_script: 'PyScript',
-  briefcase: 'Briefcase',
-
-  // JavaScript/Node ecosystem
-  node: 'Node.js',
-  yarn: 'Yarn',
-  j_lab_extension: 'JupyterLab Extension',
-
-  // Rust
-  rust: 'Rust Crate',
-
-  // Documentation
-  md_book: 'mdBook',
-  r_t_d: 'Read the Docs',
-
-  // Data & ML
-  data_package: 'Data Package',
-  hugging_face_repo: 'Hugging Face',
-
-  // IDEs & Editors
-  vs_code: 'VS Code',
-  jetbrains_ide: 'JetBrains IDE',
-  zed: 'Zed',
-  nvidia_ai_workbench: 'NVIDIA AI Workbench',
-
-  // Other
-  backstage_catalog: 'Backstage Catalog'
-};
-
-/**
- * Icons for spec types.
- *
- * Maps projspec snake_case identifiers to emoji icons.
- * Unknown specs fall back to the default icon.
- */
-const SPEC_ICONS: Record<string, string> = {
-  // Version control
-  git_repo: '🔀',
-
-  // Python ecosystem
-  python_library: '🐍',
-  python_code: '🐍',
-  poetry: '📜',
-  uv: '⚡',
-  uv_script: '⚡',
-  pixi: '🔮',
-  conda_project: '🐍',
-  conda_recipe: '📦',
-  py_script: '🌐',
-  briefcase: '💼',
-
-  // JavaScript/Node ecosystem
-  node: '📦',
-  yarn: '🧶',
-  j_lab_extension: '🪐',
-
-  // Rust
-  rust: '🦀',
-
-  // Documentation
-  md_book: '📖',
-  r_t_d: '📚',
-
-  // Data & ML
-  data_package: '📊',
-  hugging_face_repo: '🤗',
-
-  // IDEs & Editors
-  vs_code: '💻',
-  jetbrains_ide: '🧠',
-  zed: '⚡',
-  nvidia_ai_workbench: '🖥️',
-
-  // Other
-  backstage_catalog: '🎭',
-
-  // Default fallback
-  default: '📋'
-};
-
-/**
- * Get the display name for a spec type.
- * Falls back to converting snake_case to Title Case if not in the mapping.
- */
-function getSpecDisplayName(specName: string): string {
-  if (specName in SPEC_DISPLAY_NAMES) {
-    return SPEC_DISPLAY_NAMES[specName];
-  }
-  // Fallback: convert snake_case to Title Case
-  return specName
-    .split('_')
-    .map(word => word.charAt(0).toUpperCase() + word.slice(1))
-    .join(' ');
-}
-
-/**
- * Get the icon for a spec type.
- */
-function getSpecIcon(specName: string): string {
-  return SPEC_ICONS[specName] ?? SPEC_ICONS.default;
+  /** When true, forces this spec to expand (triggered by chip click). */
+  forceExpanded?: boolean;
+  /** Unique ID that changes on each expand request, ensures expansion always triggers. */
+  expandRequestId?: number;
 }
 
 /**
@@ -143,9 +24,13 @@ function getSpecIcon(specName: string): string {
 export function SpecItem({
   name,
   spec,
-  defaultExpanded = false
+  defaultExpanded = false,
+  forceExpanded = false,
+  expandRequestId = 0
 }: ISpecItemProps): React.ReactElement {
   const [isExpanded, setIsExpanded] = useState(defaultExpanded);
+  const itemRef = useRef<HTMLDivElement>(null);
+  const lastProcessedRequestId = useRef(0);
 
   const contents = spec._contents ?? {};
   const artifacts = spec._artifacts ?? {};
@@ -153,16 +38,43 @@ export function SpecItem({
   const hasArtifacts = Object.keys(artifacts).length > 0;
   const hasDetails = hasContents || hasArtifacts;
 
+  // Respond to expand requests - expand and scroll into view
+  useEffect(() => {
+    // Only process if this is a new request AND this spec should be expanded
+    if (
+      forceExpanded &&
+      expandRequestId > lastProcessedRequestId.current &&
+      hasDetails
+    ) {
+      lastProcessedRequestId.current = expandRequestId;
+      setIsExpanded(true);
+      // Scroll into view after a short delay to allow render
+      setTimeout(() => {
+        itemRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }, 50);
+    }
+  }, [forceExpanded, expandRequestId, hasDetails]);
+
   const handleToggle = () => {
     if (hasDetails) {
       setIsExpanded(!isExpanded);
     }
   };
 
+  const info = getSpecInfo(name);
+  const textColor = getTextColorForBackground(info.color);
+
   return (
-    <div className={`jp-projspec-spec-item ${isExpanded ? 'expanded' : ''}`}>
+    <div
+      ref={itemRef}
+      className={`jp-projspec-spec-item ${isExpanded ? 'expanded' : ''}`}
+    >
       <div
         className={`jp-projspec-spec-header ${hasDetails ? 'clickable' : ''}`}
+        style={{
+          backgroundColor: info.color,
+          color: textColor
+        }}
         onClick={handleToggle}
         role={hasDetails ? 'button' : undefined}
         tabIndex={hasDetails ? 0 : undefined}
@@ -178,17 +90,23 @@ export function SpecItem({
             {isExpanded ? '▼' : '▶'}
           </span>
         )}
-        <span className="jp-projspec-spec-icon">{getSpecIcon(name)}</span>
-        <span className="jp-projspec-spec-name">{getSpecDisplayName(name)}</span>
+        <span className="jp-projspec-spec-icon">{info.icon}</span>
+        <span className="jp-projspec-spec-name">{info.displayName}</span>
         <div className="jp-projspec-spec-badges">
           {hasContents && (
-            <span className="jp-projspec-badge jp-projspec-badge-contents">
-              {Object.keys(contents).length} contents
+            <span
+              className="jp-projspec-badge jp-projspec-badge-contents"
+              style={{ color: textColor, borderColor: textColor }}
+            >
+              {Object.keys(contents).length} content
             </span>
           )}
           {hasArtifacts && (
-            <span className="jp-projspec-badge jp-projspec-badge-artifacts">
-              {Object.keys(artifacts).length} artifacts
+            <span
+              className="jp-projspec-badge jp-projspec-badge-artifacts"
+              style={{ color: textColor, borderColor: textColor }}
+            >
+              {Object.keys(artifacts).length} artifact
             </span>
           )}
         </div>

@@ -13,6 +13,8 @@ const PANEL_CLASS = 'jp-projspec-Panel';
  */
 export class ProjspecPanel extends ReactWidget {
   private _currentPath: string;
+  private _expandedSpecName: string | null;
+  private _expandRequestId: number;
 
   constructor() {
     super();
@@ -21,6 +23,8 @@ export class ProjspecPanel extends ReactWidget {
     this.title.caption = 'Project Spec';
     this.title.closable = true;
     this._currentPath = '';
+    this._expandedSpecName = null;
+    this._expandRequestId = 0;
   }
 
   /**
@@ -37,8 +41,21 @@ export class ProjspecPanel extends ReactWidget {
   updatePath(path: string): void {
     if (this._currentPath !== path) {
       this._currentPath = path;
+      // Clear expanded spec when path changes
+      this._expandedSpecName = null;
       this.update();
     }
+  }
+
+  /**
+   * Expand a specific spec by name and trigger a re-render.
+   * @param specName - The spec name to expand (e.g., 'python_library').
+   */
+  expandSpec(specName: string): void {
+    this._expandedSpecName = specName;
+    // Increment request ID to ensure expansion triggers even if same spec is clicked
+    this._expandRequestId++;
+    this.update();
   }
 
   /**
@@ -46,7 +63,9 @@ export class ProjspecPanel extends ReactWidget {
    */
   render(): React.ReactElement {
     return React.createElement(ProjspecPanelComponent, {
-      path: this._currentPath
+      path: this._currentPath,
+      expandedSpecName: this._expandedSpecName,
+      expandRequestId: this._expandRequestId
     });
   }
 }
