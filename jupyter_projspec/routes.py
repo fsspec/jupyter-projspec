@@ -7,24 +7,6 @@ import projspec
 import tornado
 
 
-class HelloRouteHandler(APIHandler):
-    """Handler for the hello endpoint - kept for backwards compatibility."""
-
-    @tornado.web.authenticated
-    def get(self):
-        self.finish(
-            json.dumps(
-                {
-                    "data": (
-                        "Hello, world!"
-                        " This is the '/jupyter-projspec/hello' endpoint."
-                        " Try visiting me in your browser!"
-                    ),
-                }
-            )
-        )
-
-
 class ScanRouteHandler(APIHandler):
     """Handler for scanning a directory with projspec."""
 
@@ -92,14 +74,10 @@ def setup_route_handlers(web_app):
     host_pattern = ".*$"
     base_url = web_app.settings["base_url"]
 
-    # Hello endpoint (backwards compatibility)
-    hello_route_pattern = url_path_join(base_url, "jupyter-projspec", "hello")
-
     # Scan endpoint for projspec
     scan_route_pattern = url_path_join(base_url, "jupyter-projspec", "scan")
 
     handlers = [
-        (hello_route_pattern, HelloRouteHandler),
         (scan_route_pattern, ScanRouteHandler),
     ]
 

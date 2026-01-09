@@ -1,17 +1,10 @@
 import json
 
 
-async def test_hello(jp_fetch):
-    # When
-    response = await jp_fetch("jupyter-projspec", "hello")
+async def test_scan_no_path(jp_fetch):
+    """Test scan endpoint with no path parameter (defaults to server root)."""
+    response = await jp_fetch("jupyter-projspec", "scan")
 
-    # Then
     assert response.code == 200
     payload = json.loads(response.body)
-    assert payload == {
-            "data": (
-                "Hello, world!"
-                " This is the '/jupyter-projspec/hello' endpoint."
-                " Try visiting me in your browser!"
-            ),
-        }
+    assert "project" in payload
