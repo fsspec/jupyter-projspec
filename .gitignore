@@ -126,3 +126,6 @@ dmypy.json
 
 # Yarn cache
 .yarn/
+
+# Temporary files and plans
+tmp/
