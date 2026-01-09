@@ -30,13 +30,13 @@ class ScanRouteHandler(APIHandler):
 
     @tornado.web.authenticated
     def get(self):
-        """Scan a directory and return projspec HTML representation.
+        """Scan a directory and return projspec project data as JSON.
 
         Query Parameters:
             path: Relative path from Jupyter server root (default: "")
 
         Returns:
-            JSON with "html" key containing the _repr_html_() output,
+            JSON with "project" key containing the to_dict() output,
             or "error" key if something went wrong.
         """
         # Get the relative path from query parameter
@@ -75,23 +75,9 @@ class ScanRouteHandler(APIHandler):
         # Scan the directory with projspec
         try:
             project = projspec.Project(absolute_path)
-            html = project._repr_html_()
-
-            # Check if any specs were detected
             project_dict = project.to_dict()
-            has_specs = bool(project_dict.get("specs"))
 
-            if not has_specs:
-                # Return a message indicating no project was detected
-                html = (
-                    '<div class="jp-projspec-no-project">'
-                    "<p>No project detected in this directory.</p>"
-                    "<p>projspec can detect Python packages, Rust crates, "
-                    "Node.js projects, conda-project, pixi, uv, poetry, and more.</p>"
-                    "</div>"
-                )
-
-            self.finish(json.dumps({"html": html}))
+            self.finish(json.dumps({"project": project_dict}))
         except Exception as e:
             console_error = f"projspec error scanning {absolute_path}: {e}"
             import sys

@@ -13,11 +13,13 @@
   overflow: auto;
 }
 
-.jp-projspec-Panel-content {
+.jp-projspec-panel-content {
   padding: 12px;
 }
 
-.jp-projspec-Panel-header {
+/* Header Styles */
+
+.jp-projspec-header {
   font-size: var(--jp-ui-font-size1);
   font-weight: 600;
   color: var(--jp-ui-font-color0);
@@ -28,7 +30,7 @@
   letter-spacing: 0.5px;
 }
 
-.jp-projspec-Panel-path {
+.jp-projspec-path {
   font-family: var(--jp-code-font-family);
   font-size: var(--jp-code-font-size);
   color: var(--jp-ui-font-color1);
@@ -42,7 +44,7 @@
 
 /* Loading State */
 
-.jp-projspec-Panel-loading {
+.jp-projspec-loading {
   display: flex;
   align-items: center;
   gap: 8px;
@@ -51,7 +53,7 @@
   font-size: var(--jp-ui-font-size1);
 }
 
-.jp-projspec-Panel-spinner {
+.jp-projspec-spinner {
   width: 16px;
   height: 16px;
   border: 2px solid var(--jp-border-color2);
@@ -68,7 +70,7 @@
 
 /* Error State */
 
-.jp-projspec-Panel-error {
+.jp-projspec-error {
   display: flex;
   align-items: flex-start;
   gap: 8px;
@@ -81,191 +83,477 @@
   line-height: 1.4;
 }
 
-.jp-projspec-Panel-error-icon {
+.jp-projspec-error-icon {
   flex-shrink: 0;
 }
 
-/* Message State (no project detected, etc.) */
+/* No Specs State */
 
-.jp-projspec-Panel-message {
-  padding: 16px;
-  color: var(--jp-ui-font-color2);
-  font-size: var(--jp-ui-font-size1);
+.jp-projspec-no-specs {
+  padding: 24px 16px;
   text-align: center;
+  color: var(--jp-ui-font-color2);
 }
 
-.jp-projspec-Panel-message p {
+.jp-projspec-no-specs-icon {
+  font-size: 32px;
+  margin-bottom: 12px;
+  opacity: 0.6;
+}
+
+.jp-projspec-no-specs-title {
+  font-size: var(--jp-ui-font-size1);
+  font-weight: 600;
+  color: var(--jp-ui-font-color1);
   margin: 0 0 8px 0;
 }
 
-.jp-projspec-Panel-message p:last-child {
-  margin-bottom: 0;
-}
-
-/* Projspec Output Container */
-
-.jp-projspec-Panel-projspec {
-  font-size: var(--jp-ui-font-size1);
+.jp-projspec-no-specs-hint {
+  font-size: var(--jp-ui-font-size0);
+  margin: 0;
   line-height: 1.5;
 }
 
-/* No Project Detected Message */
+/* Project View */
 
-.jp-projspec-no-project {
-  padding: 16px;
-  background: var(--jp-layout-color2);
-  border-radius: 4px;
+.jp-projspec-project-view {
+  margin-top: 8px;
+}
+
+.jp-projspec-specs-header {
+  font-size: var(--jp-ui-font-size0);
+  font-weight: 600;
   color: var(--jp-ui-font-color2);
-  text-align: center;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 8px;
 }
 
-.jp-projspec-no-project p {
-  margin: 0 0 8px 0;
+.jp-projspec-specs-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
 }
 
-.jp-projspec-no-project p:last-child {
+/* Spec Item */
+
+.jp-projspec-spec-item {
+  border: 1px solid var(--jp-border-color2);
+  border-radius: 4px;
+  overflow: hidden;
+  background: var(--jp-layout-color1);
+}
+
+.jp-projspec-spec-item.expanded {
+  border-color: var(--jp-brand-color1);
+}
+
+.jp-projspec-spec-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  background: var(--jp-layout-color2);
+  user-select: none;
+}
+
+.jp-projspec-spec-header.clickable {
+  cursor: pointer;
+}
+
+.jp-projspec-spec-header.clickable:hover {
+  background: var(--jp-layout-color3, var(--jp-layout-color2));
+}
+
+.jp-projspec-spec-chevron {
+  font-size: 10px;
+  color: var(--jp-ui-font-color2);
+  width: 12px;
+  flex-shrink: 0;
+}
+
+.jp-projspec-spec-icon {
+  font-size: 16px;
+  flex-shrink: 0;
+}
+
+.jp-projspec-spec-name {
+  font-weight: 600;
+  color: var(--jp-ui-font-color0);
+  flex-grow: 1;
+}
+
+.jp-projspec-spec-badges {
+  display: flex;
+  gap: 4px;
+}
+
+.jp-projspec-badge {
+  font-size: var(--jp-ui-font-size0);
+  padding: 2px 6px;
+  border-radius: 10px;
+  background: var(--jp-layout-color3, var(--jp-layout-color1));
+  color: var(--jp-ui-font-color2);
+}
+
+.jp-projspec-badge-contents {
+  background: var(--jp-info-color3, rgba(0, 150, 200, 0.1));
+  color: var(--jp-info-color1, #0288d1);
+}
+
+.jp-projspec-badge-artifacts {
+  background: var(--jp-success-color3, rgba(0, 200, 100, 0.1));
+  color: var(--jp-success-color1, #388e3c);
+}
+
+/* Spec Body (Contents & Artifacts) */
+
+.jp-projspec-spec-body {
+  padding: 12px;
+  border-top: 1px solid var(--jp-border-color2);
+}
+
+.jp-projspec-spec-section {
+  margin-bottom: 12px;
+}
+
+.jp-projspec-spec-section:last-child {
   margin-bottom: 0;
 }
 
-/* Projspec HTML Output Styling */
+.jp-projspec-section-header {
+  font-size: var(--jp-ui-font-size0);
+  font-weight: 600;
+  color: var(--jp-ui-font-color2);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 8px;
+  padding-bottom: 4px;
+  border-bottom: 1px solid var(--jp-border-color3, var(--jp-border-color2));
+}
 
-/* Style details/summary elements for expandable sections */
-.jp-projspec-Panel-projspec details {
-  margin: 4px 0;
+/* Contents View */
+
+.jp-projspec-contents {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.jp-projspec-contents-empty,
+.jp-projspec-artifacts-empty {
+  color: var(--jp-ui-font-color2);
+  font-style: italic;
+  font-size: var(--jp-ui-font-size0);
+  padding: 8px 0;
+}
+
+.jp-projspec-content-item {
   border-left: 2px solid var(--jp-border-color2);
   padding-left: 8px;
 }
 
-.jp-projspec-Panel-projspec details[open] {
+.jp-projspec-content-item[open] {
   border-left-color: var(--jp-brand-color1);
 }
 
-.jp-projspec-Panel-projspec summary {
+.jp-projspec-content-name {
   cursor: pointer;
   padding: 4px 0;
   font-weight: 500;
   color: var(--jp-ui-font-color0);
   user-select: none;
   list-style-position: outside;
-  margin-left: 0;
+  font-size: var(--jp-ui-font-size1);
 }
 
-.jp-projspec-Panel-projspec summary:hover {
+.jp-projspec-content-name:hover {
   color: var(--jp-brand-color1);
 }
 
-.jp-projspec-Panel-projspec summary::marker {
-  color: var(--jp-ui-font-color2);
+.jp-projspec-content-data {
+  padding: 8px 0 8px 8px;
 }
 
-/* Style nested content */
-.jp-projspec-Panel-projspec details > div,
-.jp-projspec-Panel-projspec details > ul,
-.jp-projspec-Panel-projspec details > ol {
-  padding: 4px 0 4px 8px;
+/* Content List (for arrays) */
+
+.jp-projspec-content-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
 }
 
-/* Style lists */
-.jp-projspec-Panel-projspec ul,
-.jp-projspec-Panel-projspec ol {
-  margin: 4px 0;
-  padding-left: 20px;
-}
-
-.jp-projspec-Panel-projspec li {
+.jp-projspec-content-list-item {
+  padding: 4px 8px;
   margin: 2px 0;
+  background: var(--jp-layout-color2);
+  border-radius: 4px;
+  font-size: var(--jp-ui-font-size1);
   color: var(--jp-ui-font-color1);
 }
 
-/* Style code elements */
-.jp-projspec-Panel-projspec code {
+.jp-projspec-content-list-item:first-child {
+  margin-top: 0;
+}
+
+.jp-projspec-content-list-item:last-child {
+  margin-bottom: 0;
+}
+
+/* Object View (Key-Value Display) */
+
+.jp-projspec-object-view {
+  margin: 0;
+  font-size: var(--jp-ui-font-size0);
+}
+
+.jp-projspec-kv-row {
+  display: block;
+  margin-bottom: 8px;
+  line-height: 1.4;
+}
+
+.jp-projspec-kv-row:last-child {
+  margin-bottom: 0;
+}
+
+.jp-projspec-key {
+  font-weight: 600;
+  color: var(--jp-ui-font-color2);
+  font-size: var(--jp-ui-font-size0);
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+  display: block;
+  margin-bottom: 2px;
+}
+
+.jp-projspec-key::after {
+  content: '';
+}
+
+.jp-projspec-value {
+  color: var(--jp-ui-font-color1);
+  word-break: break-word;
+  overflow-wrap: anywhere;
+}
+
+.jp-projspec-value-null {
+  color: var(--jp-ui-font-color3, var(--jp-ui-font-color2));
+  font-style: italic;
+}
+
+.jp-projspec-value-boolean {
+  color: var(--jp-mirror-editor-keyword-color, #007acc);
+  font-weight: 500;
+}
+
+.jp-projspec-value-number {
+  color: var(--jp-mirror-editor-number-color, #098658);
+}
+
+.jp-projspec-value-string {
+  color: var(--jp-ui-font-color1);
+}
+
+.jp-projspec-value-path {
   font-family: var(--jp-code-font-family);
   font-size: var(--jp-code-font-size);
   background: var(--jp-layout-color2);
   padding: 1px 4px;
   border-radius: 2px;
-  color: var(--jp-mirror-editor-variable-color, var(--jp-ui-font-color0));
+  color: var(--jp-mirror-editor-string-color, #a31515);
 }
 
-/* Style links */
-.jp-projspec-Panel-projspec a {
-  color: var(--jp-content-link-color);
-  text-decoration: none;
-}
-
-.jp-projspec-Panel-projspec a:hover {
-  text-decoration: underline;
-}
-
-/* Style tables */
-.jp-projspec-Panel-projspec table {
-  border-collapse: collapse;
-  width: 100%;
-  margin: 8px 0;
-  font-size: var(--jp-ui-font-size0);
-}
-
-.jp-projspec-Panel-projspec th,
-.jp-projspec-Panel-projspec td {
-  padding: 4px 8px;
-  text-align: left;
-  border: 1px solid var(--jp-border-color2);
-}
-
-.jp-projspec-Panel-projspec th {
-  background: var(--jp-layout-color2);
-  font-weight: 600;
-  color: var(--jp-ui-font-color0);
-}
-
-.jp-projspec-Panel-projspec tr:nth-child(even) {
-  background: var(--jp-layout-color2);
-}
-
-/* Style paragraphs */
-.jp-projspec-Panel-projspec p {
-  margin: 4px 0;
-}
-
-/* Style strong/bold text */
-.jp-projspec-Panel-projspec strong,
-.jp-projspec-Panel-projspec b {
-  font-weight: 600;
-  color: var(--jp-ui-font-color0);
-}
-
-/* Style emphasized text */
-.jp-projspec-Panel-projspec em,
-.jp-projspec-Panel-projspec i {
+.jp-projspec-value-empty {
+  color: var(--jp-ui-font-color3, var(--jp-ui-font-color2));
   font-style: italic;
 }
 
-/* Style pre/formatted blocks */
-.jp-projspec-Panel-projspec pre {
+.jp-projspec-array {
+  margin: 4px 0;
+  padding-left: 16px;
+  list-style-type: disc;
+}
+
+.jp-projspec-array li {
+  margin: 2px 0;
+}
+
+.jp-projspec-nested-object summary {
+  cursor: pointer;
+  color: var(--jp-ui-font-color2);
+  font-style: italic;
+}
+
+.jp-projspec-nested-object summary:hover {
+  color: var(--jp-brand-color1);
+}
+
+.jp-projspec-empty-object {
+  color: var(--jp-ui-font-color3, var(--jp-ui-font-color2));
+  font-style: italic;
+}
+
+/* Artifacts View */
+
+.jp-projspec-artifacts {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.jp-projspec-artifact-item {
+  border-left: 2px solid var(--jp-border-color2);
+  padding-left: 8px;
+}
+
+.jp-projspec-artifact-item[open] {
+  border-left-color: var(--jp-success-color1, #388e3c);
+}
+
+.jp-projspec-artifact-name {
+  cursor: pointer;
+  padding: 4px 0;
+  font-weight: 500;
+  color: var(--jp-ui-font-color0);
+  user-select: none;
+  list-style-position: outside;
+  font-size: var(--jp-ui-font-size1);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.jp-projspec-artifact-name:hover {
+  color: var(--jp-brand-color1);
+}
+
+.jp-projspec-artifact-icon {
+  font-size: 14px;
+}
+
+.jp-projspec-artifact-status {
+  font-size: var(--jp-ui-font-size0);
+  padding: 1px 6px;
+  border-radius: 8px;
+  background: var(--jp-layout-color2);
+  color: var(--jp-ui-font-color2);
+  margin-left: auto;
+}
+
+.jp-projspec-status-ready {
+  background: var(--jp-success-color3, rgba(0, 200, 100, 0.1));
+  color: var(--jp-success-color1, #388e3c);
+}
+
+.jp-projspec-status-pending,
+.jp-projspec-status-building {
+  background: var(--jp-warn-color3, rgba(255, 200, 0, 0.1));
+  color: var(--jp-warn-color1, #f9a825);
+}
+
+.jp-projspec-status-error,
+.jp-projspec-status-failed {
+  background: var(--jp-error-color3, rgba(255, 0, 0, 0.1));
+  color: var(--jp-error-color1, #d32f2f);
+}
+
+.jp-projspec-status-clean {
+  background: var(--jp-layout-color3);
+  color: var(--jp-ui-font-color2);
+}
+
+.jp-projspec-status-done {
+  background: var(--jp-success-color3, rgba(0, 200, 100, 0.1));
+  color: var(--jp-success-color1, #388e3c);
+}
+
+/* String Artifacts (compact mode) */
+
+.jp-projspec-artifact-string {
+  padding: 8px;
+  background: var(--jp-layout-color2);
+  border-radius: 4px;
+  border-left: 2px solid var(--jp-border-color2);
+}
+
+.jp-projspec-artifact-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 6px;
+}
+
+.jp-projspec-artifact-string .jp-projspec-artifact-name {
+  font-weight: 500;
+  color: var(--jp-ui-font-color0);
+  font-size: var(--jp-ui-font-size1);
+}
+
+.jp-projspec-artifact-cmd {
+  display: block;
+  font-family: var(--jp-code-font-family);
+  font-size: var(--jp-code-font-size);
+  background: var(--jp-layout-color1);
+  padding: 6px 8px;
+  border-radius: 3px;
+  color: var(--jp-mirror-editor-string-color, var(--jp-ui-font-color0));
+  word-break: break-word;
+  white-space: pre-wrap;
+}
+
+.jp-projspec-artifact-details {
+  padding: 8px 0 8px 8px;
+}
+
+.jp-projspec-artifact-fields {
+  margin: 0;
+  font-size: var(--jp-ui-font-size0);
+}
+
+.jp-projspec-artifact-field {
+  display: block;
+  margin-bottom: 8px;
+  line-height: 1.4;
+}
+
+.jp-projspec-artifact-field:last-child {
+  margin-bottom: 0;
+}
+
+.jp-projspec-artifact-field dt {
+  font-weight: 600;
+  color: var(--jp-ui-font-color2);
+  font-size: var(--jp-ui-font-size0);
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+  display: block;
+  margin-bottom: 2px;
+}
+
+.jp-projspec-artifact-field dt::after {
+  content: '';
+}
+
+.jp-projspec-artifact-field dd {
+  margin: 0;
+}
+
+.jp-projspec-artifact-field code {
   font-family: var(--jp-code-font-family);
   font-size: var(--jp-code-font-size);
   background: var(--jp-layout-color2);
-  padding: 8px;
-  border-radius: 4px;
-  overflow-x: auto;
-  margin: 8px 0;
+  padding: 2px 6px;
+  border-radius: 2px;
+  color: var(--jp-mirror-editor-string-color, var(--jp-ui-font-color0));
+  word-break: break-word;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+  display: block;
 }
 
-/* Style headings if present */
-.jp-projspec-Panel-projspec h1,
-.jp-projspec-Panel-projspec h2,
-.jp-projspec-Panel-projspec h3,
-.jp-projspec-Panel-projspec h4,
-.jp-projspec-Panel-projspec h5,
-.jp-projspec-Panel-projspec h6 {
-  margin: 8px 0 4px 0;
-  color: var(--jp-ui-font-color0);
-  font-weight: 600;
+.jp-projspec-artifact-no-details {
+  color: var(--jp-ui-font-color3, var(--jp-ui-font-color2));
+  font-style: italic;
+  font-size: var(--jp-ui-font-size0);
 }
-
-.jp-projspec-Panel-projspec h1 { font-size: 1.3em; }
-.jp-projspec-Panel-projspec h2 { font-size: 1.2em; }
-.jp-projspec-Panel-projspec h3 { font-size: 1.1em; }
-.jp-projspec-Panel-projspec h4,
-.jp-projspec-Panel-projspec h5,
-.jp-projspec-Panel-projspec h6 { font-size: 1em; }
