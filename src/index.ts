@@ -4,8 +4,8 @@ import {
   JupyterFrontEndPlugin
 } from '@jupyterlab/application';
 import { IDefaultFileBrowser } from '@jupyterlab/filebrowser';
-import { listIcon } from '@jupyterlab/ui-components';
 
+import { projspecIcon } from './icon';
 import { ProjspecPanel } from './widgets/ProjspecPanel';
 
 /**
@@ -29,7 +29,7 @@ const plugin: JupyterFrontEndPlugin<void> = {
   ) => {
     // Create the projspec panel widget
     const panel = new ProjspecPanel();
-    panel.title.icon = listIcon;
+    panel.title.icon = projspecIcon;
 
     // Function to update the panel with the current path
     const updatePath = () => {

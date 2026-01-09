@@ -18,7 +18,7 @@ export class ProjspecPanel extends ReactWidget {
     super();
     this.addClass(PANEL_CLASS);
     this.id = 'projspec-panel';
-    this.title.label = 'Project Spec';
+    this.title.caption = 'Project Spec';
     this.title.closable = true;
     this._currentPath = '';
   }

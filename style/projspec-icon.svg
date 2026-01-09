@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none">
+  <!-- Folder back -->
+  <path d="M2 6C2 4.89543 2.89543 4 4 4H9L11 6H20C21.1046 6 22 6.89543 22 8V18C22 19.1046 21.1046 20 20 20H4C2.89543 20 2 19.1046 2 18V6Z" fill="#4A7DC9"/>
+  
+  <!-- Folder front/tab -->
+  <path d="M2 8H22V18C22 19.1046 21.1046 20 20 20H4C2.89543 20 2 19.1046 2 18V8Z" fill="#5B8FDB"/>
+  
+  <!-- Magnifying glass circle -->
+  <circle cx="13" cy="12" r="5.5" fill="#4A7DC9" stroke="white" stroke-width="1.5"/>
+  
+  <!-- Curly braces -->
+  <path d="M10.5 9.5C10.5 9.5 9.5 9.5 9.5 10.5C9.5 11.2 9.5 11.5 9 12C9.5 12.5 9.5 12.8 9.5 13.5C9.5 14.5 10.5 14.5 10.5 14.5" stroke="white" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+  <path d="M15.5 9.5C15.5 9.5 16.5 9.5 16.5 10.5C16.5 11.2 16.5 11.5 17 12C16.5 12.5 16.5 12.8 16.5 13.5C16.5 14.5 15.5 14.5 15.5 14.5" stroke="white" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+  
+  <!-- Magnifying glass handle -->
+  <line x1="17" y1="16" x2="20" y2="19" stroke="white" stroke-width="2" stroke-linecap="round"/>
+</svg>
+
