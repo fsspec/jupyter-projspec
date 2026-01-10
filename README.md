@@ -43,7 +43,7 @@ jupyter-projspec recognizes many project types through projspec:
 ## Requirements
 
 - JupyterLab >= 4.0.0
-- Python >= 3.9
+- Python >= 3.10
 - [projspec](https://github.com/fsspec/projspec)
 
 ## Install
