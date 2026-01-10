@@ -5,7 +5,7 @@
 
 A JupyterLab extension that brings [projspec](https://github.com/fsspec/projspec) project introspection directly into your development workflow. See at a glance what kind of project you're working in and explore its structure, metadata, and buildable artifacts.
 
-![Screenshot of jupyter-projspec in JupyterLab](./docs/screenshot.png)
+<img width="2517" height="1293" alt="Screenshot 2026-01-09 at 3 59 41 PM" src="https://github.com/user-attachments/assets/cde02dcd-9aa6-4288-a4c7-72c0f82764b0" />
 
 ## Features
 
