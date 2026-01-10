@@ -1,4 +1,4 @@
-# jupyter-projspec
+# jupyter-projspec <img width="32" alt="logo" src="https://github.com/user-attachments/assets/c87219a0-63d1-4f69-ba29-f5b35f1835ee" />
 
 [![Github Actions Status](https://github.com/fsspec/jupyter-projspec/workflows/Build/badge.svg)](https://github.com/fsspec/jupyter-projspec/actions/workflows/build.yml)
 [![Binder](https://mybinder.org/badge_logo.svg)](https://mybinder.org/v2/gh/fsspec/jupyter-projspec/main?urlpath=lab)
