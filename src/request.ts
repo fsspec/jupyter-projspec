@@ -39,7 +39,9 @@ export async function requestAPI<T>(
   }
 
   if (!response.ok) {
-    throw new ServerConnection.ResponseError(response, data.message || data);
+    // Extract error message if data has an 'error' property
+    const errorMessage = data?.error || data?.message || data;
+    throw new ServerConnection.ResponseError(response, errorMessage);
   }
 
   return data;

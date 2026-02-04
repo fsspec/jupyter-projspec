@@ -59,7 +59,7 @@ function StringArtifactItem({
         setResult(`Failed: ${response.stderr}`);
       }
     } catch (error: any) {
-      const errorMsg = error.message || error.toString() || 'Unknown error';
+      const errorMsg = error?.message || error?.toString() || 'Unknown error';
       setResult(`Error: ${errorMsg}`);
     } finally {
       setIsRunning(false);
