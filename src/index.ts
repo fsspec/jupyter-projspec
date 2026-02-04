@@ -86,6 +86,8 @@ const plugin: JupyterFrontEndPlugin<void> = {
         layout.insertWidget(1, chipsWidget);
       }
     });
+
+    console.log('JupyterLab extension jupyter-projspec is activated!');
   }
 };
 
