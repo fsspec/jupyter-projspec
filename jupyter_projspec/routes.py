@@ -6,6 +6,40 @@ from jupyter_server.utils import url_path_join
 import projspec
 import tornado
 
+from concurrent.futures import ThreadPoolExecutor
+import subprocess
+
+_executor = ThreadPoolExecutor(max_workers=10)
+
+class MakeRouteHandler(APIHandler):
+    async def post(self):
+        data = self.get_json_body()
+
+        try:
+            result = await tornado.ioloop.IOLoop.current().run_in_executor(_executor, self._run_make_command, data)
+            self.finish(json.dumps(result))
+        except subprocess.TimeoutExpired as e:
+            self.set_status(500)
+            self.finish(json.dumps({"error": "Command timed out"}))
+        except Exception as e:
+            self.set_status(500)
+            self.finish(json.dumps({"error": str(e)}))
+
+    def _run_make_command(self, data):
+        """Run a make command (called in thread pool) and return the result."""
+
+        command_string = data["command"]
+
+        import shlex
+        command_list = shlex.split(command_string)
+
+        result = subprocess.run(command_list, capture_output=True, text=True, timeout=120)
+
+        return {
+            "stdout": result.stdout,
+            "stderr": result.stderr,
+            "returncode": result.returncode
+        }
 
 class ScanRouteHandler(APIHandler):
     """Handler for scanning a directory with projspec."""
@@ -76,9 +110,11 @@ def setup_route_handlers(web_app):
 
     # Scan endpoint for projspec
     scan_route_pattern = url_path_join(base_url, "jupyter-projspec", "scan")
+    make_route_pattern = url_path_join(base_url, "jupyter-projspec", "make")
 
     handlers = [
         (scan_route_pattern, ScanRouteHandler),
+        (make_route_pattern, MakeRouteHandler),
     ]
 
     web_app.add_handlers(host_pattern, handlers)

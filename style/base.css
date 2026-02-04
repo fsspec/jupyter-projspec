@@ -654,3 +654,19 @@
   padding: 3px 8px;
   letter-spacing: 2px;
 }
+
+/* Make Button Styles */
+.jp-projspec-make-button {
+  border: 1px solid var(--jp-border-color2);
+  outline: none;
+}
+
+.jp-projspec-make-button:focus {
+  outline: none;
+  border-color: var(--jp-brand-color1);
+  box-shadow: 0 0 4px var(--jp-brand-color1);
+}
+
+.jp-projspec-make-button:active {
+  transform: translateY(1px);
+}

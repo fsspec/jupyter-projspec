@@ -1,5 +1,6 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { IArtifact } from '../types';
+import { make } from '../api';
 
 /**
  * Props for the ArtifactsView component.
@@ -40,6 +41,30 @@ function StringArtifactItem({
   artifact
 }: IStringArtifactItemProps): React.ReactElement {
   const { cmd, status } = parseCompactArtifact(artifact);
+  const [isRunning, setIsRunning] = useState(false);
+  const [result, setResult] = useState<string | null>(null);
+
+  const handleMake = async () => {
+    setIsRunning(true);
+    setResult(null);
+
+    try {
+      const response = await make(cmd);
+      console.log('Backend response:', response);
+
+      if (response.returncode === 0) {
+        const output = response.stdout.trim();
+        setResult(output ? `Success\n${output}` : 'Success');
+      } else {
+        setResult(`Failed: ${response.stderr}`);
+      }
+    } catch (error: any) {
+      const errorMsg = error.message || error.toString() || 'Unknown error';
+      setResult(`Error: ${errorMsg}`);
+    } finally {
+      setIsRunning(false);
+    }
+  };
 
   return (
     <div className="jp-projspec-artifact-item jp-projspec-artifact-string">
@@ -53,8 +78,24 @@ function StringArtifactItem({
             {status}
           </span>
         )}
+        <button
+          onClick={handleMake}
+          disabled={isRunning}
+          className="jp-projspec-make-button"
+        >
+          {isRunning ? '⏳ Running...' : '▶️ Make'}
+        </button>
       </div>
       <code className="jp-projspec-artifact-cmd">{cmd}</code>
+      {result && (
+        <details>
+          <summary>
+            {result.startsWith('Success') ? '✅ Success' : '❌ Failed'} (click
+            for details)
+          </summary>
+          <pre className="jp-projspec-result-output">{result}</pre>
+        </details>
+      )}
     </div>
   );
 }
@@ -132,7 +173,9 @@ function ObjectArtifactItem({
  * Component for rendering the artifacts of a spec.
  * Handles both string artifacts (compact mode) and object artifacts.
  */
-export function ArtifactsView({ artifacts }: IArtifactsViewProps): React.ReactElement {
+export function ArtifactsView({
+  artifacts
+}: IArtifactsViewProps): React.ReactElement {
   const artifactKeys = Object.keys(artifacts);
 
   if (artifactKeys.length === 0) {
@@ -169,4 +212,3 @@ export function ArtifactsView({ artifacts }: IArtifactsViewProps): React.ReactEl
     </div>
   );
 }
-
