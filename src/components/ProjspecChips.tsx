@@ -1,10 +1,7 @@
 import React, { useEffect, useState, useRef, useCallback } from 'react';
 import { requestAPI } from '../request';
 import { IScanResponse } from '../types';
-import {
-  getSpecInfo,
-  getTextColorForBackground
-} from '../specInfo';
+import { getSpecInfo, getTextColorForBackground } from '../specInfo';
 
 /**
  * Debounce delay for API requests in milliseconds.
@@ -121,28 +118,27 @@ export function ProjspecChips({
   return (
     <div className="jp-projspec-chips">
       {specs.map(specName => {
-          const info = getSpecInfo(specName);
-          const textColor = getTextColorForBackground(info.color);
+        const info = getSpecInfo(specName);
+        const textColor = getTextColorForBackground(info.color);
 
-          return (
-            <button
-              key={specName}
-              className="jp-projspec-chip"
-              style={{
-                backgroundColor: info.color,
-                color: textColor,
-                borderRadius: '999px',
-                padding: '6px 16px 6px 12px'
-              }}
-              title={`${info.displayName} - Click to view details`}
-              onClick={() => onChipClick(specName)}
-            >
-              <span className="jp-projspec-chip-icon">{info.icon}</span>
-              <span className="jp-projspec-chip-label">{info.displayName}</span>
-            </button>
-          );
-        })}
+        return (
+          <button
+            key={specName}
+            className="jp-projspec-chip"
+            style={{
+              backgroundColor: info.color,
+              color: textColor,
+              borderRadius: '999px',
+              padding: '6px 16px 6px 12px'
+            }}
+            title={`${info.displayName} - Click to view details`}
+            onClick={() => onChipClick(specName)}
+          >
+            <span className="jp-projspec-chip-icon">{info.icon}</span>
+            <span className="jp-projspec-chip-label">{info.displayName}</span>
+          </button>
+        );
+      })}
     </div>
   );
 }
-

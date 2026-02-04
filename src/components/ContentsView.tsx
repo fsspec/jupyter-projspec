@@ -132,7 +132,9 @@ function renderContentData(content: unknown): React.ReactNode {
  * Component for rendering the contents of a spec.
  * Displays contents as nested key-value pairs.
  */
-export function ContentsView({ contents }: IContentsViewProps): React.ReactElement {
+export function ContentsView({
+  contents
+}: IContentsViewProps): React.ReactElement {
   const contentKeys = Object.keys(contents);
 
   if (contentKeys.length === 0) {
@@ -147,7 +149,9 @@ export function ContentsView({ contents }: IContentsViewProps): React.ReactEleme
         const content = contents[contentType];
         return (
           <details key={contentType} className="jp-projspec-content-item">
-            <summary className="jp-projspec-content-name">{contentType}</summary>
+            <summary className="jp-projspec-content-name">
+              {contentType}
+            </summary>
             <div className="jp-projspec-content-data">
               {renderContentData(content)}
             </div>
@@ -157,4 +161,3 @@ export function ContentsView({ contents }: IContentsViewProps): React.ReactEleme
     </div>
   );
 }
-

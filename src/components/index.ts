@@ -7,4 +7,3 @@ export { SpecItem } from './SpecItem';
 export { ContentsView } from './ContentsView';
 export { ArtifactsView } from './ArtifactsView';
 export { ProjspecChips } from './ProjspecChips';
-

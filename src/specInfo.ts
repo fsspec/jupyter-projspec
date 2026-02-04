@@ -31,7 +31,11 @@ const SPEC_INFO: Record<string, ISpecDisplayInfo> = {
   git_repo: { displayName: 'Git Repository', icon: '🔀', color: '#c7c9e0' },
 
   // Python ecosystem
-  python_library: { displayName: 'Python Library', icon: '🐍', color: '#b8dcc2' },
+  python_library: {
+    displayName: 'Python Library',
+    icon: '🐍',
+    color: '#b8dcc2'
+  },
   python_code: { displayName: 'Python Code', icon: '🐍', color: '#c5e8cd' },
   poetry: { displayName: 'Poetry', icon: '📜', color: '#d4c8e8' },
   uv: { displayName: 'uv', icon: '⚡', color: '#f0d4c4' },
@@ -45,7 +49,11 @@ const SPEC_INFO: Record<string, ISpecDisplayInfo> = {
   // JavaScript/Node ecosystem
   node: { displayName: 'Node.js', icon: '📦', color: '#d4e8b8' },
   yarn: { displayName: 'Yarn', icon: '🧶', color: '#c4ddf0' },
-  j_lab_extension: { displayName: 'JupyterLab Extension', icon: '🪐', color: '#f0d4c4' },
+  j_lab_extension: {
+    displayName: 'JupyterLab Extension',
+    icon: '🪐',
+    color: '#f0d4c4'
+  },
 
   // Rust
   rust: { displayName: 'Rust Crate', icon: '🦀', color: '#e8ccc0' },
@@ -56,16 +64,28 @@ const SPEC_INFO: Record<string, ISpecDisplayInfo> = {
 
   // Data & ML
   data_package: { displayName: 'Data Package', icon: '📊', color: '#f0c8d8' },
-  hugging_face_repo: { displayName: 'Hugging Face', icon: '🤗', color: '#f0e4b8' },
+  hugging_face_repo: {
+    displayName: 'Hugging Face',
+    icon: '🤗',
+    color: '#f0e4b8'
+  },
 
   // IDEs & Editors
   vs_code: { displayName: 'VS Code', icon: '💻', color: '#c4d4f0' },
   jetbrains_ide: { displayName: 'JetBrains IDE', icon: '🧠', color: '#e8c8d8' },
   zed: { displayName: 'Zed', icon: '⚡', color: '#d8e8c4' },
-  nvidia_ai_workbench: { displayName: 'NVIDIA AI Workbench', icon: '🖥️', color: '#c8e0b8' },
+  nvidia_ai_workbench: {
+    displayName: 'NVIDIA AI Workbench',
+    icon: '🖥️',
+    color: '#c8e0b8'
+  },
 
   // Other
-  backstage_catalog: { displayName: 'Backstage Catalog', icon: '🎭', color: '#c4dfe3' }
+  backstage_catalog: {
+    displayName: 'Backstage Catalog',
+    icon: '🎭',
+    color: '#c4dfe3'
+  }
 };
 
 /**
@@ -147,4 +167,3 @@ export function getTextColorForBackground(bgColor: string): string {
 
   return luminance > 0.5 ? '#1a1a1a' : '#ffffff';
 }
-
