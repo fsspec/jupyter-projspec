@@ -3,11 +3,17 @@ import { URLExt } from '@jupyterlab/coreutils';
 import { ServerConnection } from '@jupyterlab/services';
 
 /**
- * Call the server extension
+ * Call the server extension.
+ *
+ * Sends a request to the jupyter-projspec backend and returns the
+ * parsed JSON response. Throws a ResponseError for non-OK status codes
+ * and a NetworkError for connection failures.
  *
  * @param endPoint API REST end point for the extension
  * @param init Initial values for the request
  * @returns The response body interpreted as JSON
+ * @throws ServerConnection.ResponseError if the response is non-OK or non-JSON
+ * @throws ServerConnection.NetworkError on connection failure
  */
 export async function requestAPI<T>(
   endPoint = '',
@@ -25,24 +31,54 @@ export async function requestAPI<T>(
   try {
     response = await ServerConnection.makeRequest(requestUrl, init, settings);
   } catch (error) {
-    throw new ServerConnection.NetworkError(error as any);
-  }
-
-  let data: any = await response.text();
-
-  if (data.length > 0) {
-    try {
-      data = JSON.parse(data);
-    } catch (error) {
-      console.log('Not a JSON response body.', response);
+    if (error instanceof TypeError) {
+      throw new ServerConnection.NetworkError(error);
     }
+    throw error;
   }
+
+  const text = await response.text();
 
   if (!response.ok) {
-    // Extract error message if data has an 'error' property
-    const errorMessage = data?.error || data?.message || data;
-    throw new ServerConnection.ResponseError(response, errorMessage);
+    // Try to extract a structured error message from JSON error responses
+    let errorMessage: string;
+    try {
+      const data = JSON.parse(text);
+      if (data !== null && typeof data === 'object' && !Array.isArray(data)) {
+        errorMessage = String(
+          (data as Record<string, unknown>).error ||
+            (data as Record<string, unknown>).message ||
+            JSON.stringify(data)
+        );
+      } else {
+        errorMessage = text;
+      }
+    } catch {
+      errorMessage = text;
+    }
+
+    // Truncate large error bodies (HTML pages, stack traces, etc.)
+    if (errorMessage && errorMessage.length > 500) {
+      errorMessage = errorMessage.slice(0, 500) + '... (truncated)';
+    }
+
+    throw new ServerConnection.ResponseError(
+      response,
+      errorMessage || response.statusText || `HTTP ${response.status}`
+    );
   }
 
-  return data;
+  // Allow empty responses for 204 No Content or other success codes
+  if (!text) {
+    return undefined as unknown as T;
+  }
+
+  try {
+    return JSON.parse(text) as T;
+  } catch {
+    throw new ServerConnection.ResponseError(
+      response,
+      `Expected JSON response, got: ${text.slice(0, 100)}`
+    );
+  }
 }

@@ -200,6 +200,7 @@ export function ProjspecPanelComponent({
       {!state.loading && !state.error && state.project && (
         <ProjectView
           project={state.project}
+          path={path}
           expandedSpecName={expandedSpecName}
           expandRequestId={expandRequestId}
         />
