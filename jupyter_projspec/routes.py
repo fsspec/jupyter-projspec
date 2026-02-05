@@ -16,6 +16,17 @@ logger = logging.getLogger(__name__)
 
 _executor = ThreadPoolExecutor(max_workers=10)
 
+# Maximum concurrent make commands allowed (prevents thread pool exhaustion
+# from long-running commands that each block for up to COMMAND_TIMEOUT_SECONDS)
+MAX_CONCURRENT_COMMANDS = 5
+_active_commands = 0
+_active_commands_lock = threading.Lock()
+
+
+class ConcurrencyLimitError(RuntimeError):
+    """Raised when the maximum number of concurrent commands is reached."""
+
+
 # Maximum bytes of stdout/stderr to capture from a subprocess
 MAX_OUTPUT_BYTES = 1024 * 1024  # 1 MB per stream
 
@@ -112,6 +123,10 @@ def _read_stream(stream, max_bytes: int, result: list[bytes]) -> None:
     result.append(data)
 
 
+class OutputCaptureError(RuntimeError):
+    """Raised when reader threads fail to complete and output may be incomplete."""
+
+
 def _run_with_output_limit(
     command: list[str],
     cwd: str,
@@ -122,6 +137,11 @@ def _run_with_output_limit(
     Reads stdout/stderr in parallel threads, each capped at MAX_OUTPUT_BYTES.
     Excess output is drained but discarded, preventing memory exhaustion from
     commands that produce unbounded output.
+
+    Raises:
+        OutputCaptureError: If reader threads do not complete within 5 seconds
+            after the process exits, indicating output may be incomplete.
+        subprocess.TimeoutExpired: If the command exceeds the given timeout.
     """
     process = subprocess.Popen(
         command,
@@ -145,17 +165,27 @@ def _run_with_output_limit(
         daemon=True,
     )
 
-    stdout_thread.start()
-    stderr_thread.start()
-
     try:
-        process.wait(timeout=timeout)
-    except subprocess.TimeoutExpired:
-        process.kill()
-        stdout_thread.join(timeout=5)
-        stderr_thread.join(timeout=5)
-        raise
+        stdout_thread.start()
+        stderr_thread.start()
+
+        try:
+            process.wait(timeout=timeout)
+        except subprocess.TimeoutExpired:
+            process.kill()
+            stdout_thread.join(timeout=5)
+            stderr_thread.join(timeout=5)
+            raise
     finally:
+        # Ensure the process is terminated if still running (e.g., exception
+        # between Popen and wait, or unexpected error in thread setup)
+        if process.poll() is None:
+            process.terminate()
+            try:
+                process.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                process.kill()
+                process.wait(timeout=5)
         # Close streams to release file descriptors promptly
         if process.stdout:
             process.stdout.close()
@@ -165,11 +195,10 @@ def _run_with_output_limit(
     stdout_thread.join(timeout=5)
     stderr_thread.join(timeout=5)
 
-    # Guard against empty result if a reader thread didn't finish in time
-    if stdout_thread.is_alive():
-        logger.warning("stdout reader thread did not complete within timeout")
-    if stderr_thread.is_alive():
-        logger.warning("stderr reader thread did not complete within timeout")
+    # Raise if reader threads are still alive — output is incomplete
+    if stdout_thread.is_alive() or stderr_thread.is_alive():
+        logger.error("Reader threads did not complete within timeout")
+        raise OutputCaptureError("Failed to capture complete command output")
 
     stdout_bytes = stdout_data[0] if stdout_data else b""
     stderr_bytes = stderr_data[0] if stderr_data else b""
@@ -255,6 +284,15 @@ class MakeRouteHandler(APIHandler):
         except subprocess.TimeoutExpired:
             self.set_status(504)
             self.finish(json.dumps({"error": "Command execution timed out"}))
+        except OutputCaptureError as e:
+            logger.error("Output capture failed: %s", e)
+            self.set_status(500)
+            self.finish(json.dumps({"error": "Failed to capture command output"}))
+        except ConcurrencyLimitError:
+            self.set_status(429)
+            self.finish(json.dumps({
+                "error": "Too many concurrent commands. Please wait and try again."
+            }))
         except PathSecurityError as e:
             self.set_status(403)
             self.finish(json.dumps({"error": str(e)}))
@@ -274,7 +312,13 @@ class MakeRouteHandler(APIHandler):
 
         Looks up the artifact in projspec's registry and executes its command,
         rather than accepting arbitrary shell commands from the client.
+
+        Raises:
+            ConcurrencyLimitError: If the maximum number of concurrent commands
+                is already running.
         """
+        global _active_commands
+
         path = data.get("path", "")
         spec_type = data["spec_type"]
         artifact_name = data["artifact_name"]
@@ -297,6 +341,12 @@ class MakeRouteHandler(APIHandler):
 
         artifact = spec.artifacts[artifact_name]
         command = artifact.cmd
+
+        # Reject artifacts with no command defined
+        if command is None:
+            raise ArtifactLookupError(
+                f"Artifact '{artifact_name}' has no command defined"
+            )
 
         # Handle both string and list command formats from projspec.
         # Note: shell=False means shell features (pipes, redirects) won't work;
@@ -324,9 +374,21 @@ class MakeRouteHandler(APIHandler):
                 f"Artifact '{artifact_name}' has a malformed command"
             )
 
-        return _run_with_output_limit(
-            command_list, cwd=absolute_path, timeout=COMMAND_TIMEOUT_SECONDS
-        )
+        # Enforce concurrency limit to prevent thread pool exhaustion from
+        # long-running commands (each can block up to COMMAND_TIMEOUT_SECONDS)
+        with _active_commands_lock:
+            if _active_commands >= MAX_CONCURRENT_COMMANDS:
+                raise ConcurrencyLimitError(
+                    f"Maximum concurrent commands ({MAX_CONCURRENT_COMMANDS}) reached"
+                )
+            _active_commands += 1
+        try:
+            return _run_with_output_limit(
+                command_list, cwd=absolute_path, timeout=COMMAND_TIMEOUT_SECONDS
+            )
+        finally:
+            with _active_commands_lock:
+                _active_commands -= 1
 
 
 class ScanRouteHandler(APIHandler):

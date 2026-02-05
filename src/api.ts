@@ -36,11 +36,15 @@ interface IMakeResponse {
  */
 export async function make(request: IMakeRequest): Promise<IMakeResponse> {
   try {
-    return await requestAPI<IMakeResponse>('make', {
+    const response = await requestAPI<IMakeResponse>('make', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(request)
     });
+    if (response === undefined) {
+      throw new Error('Make request returned an empty response');
+    }
+    return response;
   } catch (err) {
     if (err instanceof ServerConnection.ResponseError) {
       const status = err.response.status;

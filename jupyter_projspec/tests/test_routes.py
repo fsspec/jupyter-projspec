@@ -349,40 +349,40 @@ class TestScanPathValidation:
 class TestRunWithOutputLimit:
     """Tests for the _run_with_output_limit helper function."""
 
-    def test_successful_command(self):
+    def test_successful_command(self, tmp_path):
         """A simple echo command should return its output."""
         from jupyter_projspec.routes import _run_with_output_limit
 
         result = _run_with_output_limit(
-            ["echo", "hello world"], cwd="/tmp", timeout=10
+            ["echo", "hello world"], cwd=str(tmp_path), timeout=10
         )
         assert result["returncode"] == 0
         assert "hello world" in result["stdout"]
         assert result["truncated"] is False
 
-    def test_failing_command(self):
+    def test_failing_command(self, tmp_path):
         """A command that exits non-zero should report the exit code."""
         from jupyter_projspec.routes import _run_with_output_limit
 
         result = _run_with_output_limit(
             [sys.executable, "-c", "import sys; sys.exit(42)"],
-            cwd="/tmp",
+            cwd=str(tmp_path),
             timeout=10,
         )
         assert result["returncode"] == 42
 
-    def test_stderr_captured(self):
+    def test_stderr_captured(self, tmp_path):
         """Stderr output should be captured separately."""
         from jupyter_projspec.routes import _run_with_output_limit
 
         result = _run_with_output_limit(
             [sys.executable, "-c", "import sys; sys.stderr.write('oops\\n')"],
-            cwd="/tmp",
+            cwd=str(tmp_path),
             timeout=10,
         )
         assert "oops" in result["stderr"]
 
-    def test_timeout_raises(self):
+    def test_timeout_raises(self, tmp_path):
         """A command exceeding the timeout should raise TimeoutExpired."""
         import subprocess
         from jupyter_projspec.routes import _run_with_output_limit
@@ -390,11 +390,11 @@ class TestRunWithOutputLimit:
         with pytest.raises(subprocess.TimeoutExpired):
             _run_with_output_limit(
                 [sys.executable, "-c", "import time; time.sleep(60)"],
-                cwd="/tmp",
+                cwd=str(tmp_path),
                 timeout=1,
             )
 
-    def test_output_truncation(self):
+    def test_output_truncation(self, tmp_path):
         """Output exceeding MAX_OUTPUT_BYTES should be truncated."""
         from jupyter_projspec.routes import (
             MAX_OUTPUT_BYTES,
@@ -407,7 +407,7 @@ class TestRunWithOutputLimit:
             f"sys.stdout.write('A' * {MAX_OUTPUT_BYTES + 1000})"
         )
         result = _run_with_output_limit(
-            [sys.executable, "-c", script], cwd="/tmp", timeout=30
+            [sys.executable, "-c", script], cwd=str(tmp_path), timeout=30
         )
         assert result["truncated"] is True
         assert result["stdout"].endswith("... (output truncated by server)")
@@ -589,3 +589,23 @@ class TestMakeExecution:
         assert exc_info.value.response.code == 400
         payload = json.loads(exc_info.value.response.body)
         assert "command syntax" in payload["error"]
+
+    @patch("jupyter_projspec.routes.projspec.Project")
+    async def test_none_command_returns_400(self, mock_project_cls, jp_fetch):
+        """An artifact with cmd=None should return 400."""
+        mock_project_cls.side_effect = (
+            lambda path: _mock_projspec_project(None).return_value
+        )
+
+        with pytest.raises(Exception) as exc_info:
+            await jp_fetch(
+                "jupyter-projspec", "make",
+                method="POST",
+                body=json.dumps({
+                    "spec_type": "test_spec",
+                    "artifact_name": "test_art",
+                }).encode(),
+            )
+        assert exc_info.value.response.code == 400
+        payload = json.loads(exc_info.value.response.body)
+        assert "no command defined" in payload["error"]

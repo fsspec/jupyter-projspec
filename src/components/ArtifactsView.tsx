@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useRef, useState } from 'react';
 import { IArtifact } from '../types';
 import { make } from '../api';
 
@@ -23,9 +23,10 @@ interface IArtifactsViewProps {
  * Format: "command args, status" -> { cmd: "command args", status: "status" }
  * The last comma separates the command from the status field.
  *
- * WARNING: Commands containing commas (e.g., `echo 'a,b'`) will be
- * incorrectly split. The projspec compact format assumes commas do not
- * appear in command strings.
+ * Limitation: Commands containing literal commas (e.g., `echo 'a,b'`) will be
+ * incorrectly split because the projspec compact format uses comma as a
+ * delimiter. This is an inherent limitation of the compact string
+ * representation; such commands should use the object artifact format instead.
  */
 function parseCompactArtifact(value: string): { cmd: string; status: string } {
   const lastComma = value.lastIndexOf(',');
@@ -72,13 +73,16 @@ function useMakeArtifact(
 } {
   const [isRunning, setIsRunning] = useState(false);
   const [result, setResult] = useState<string | null>(null);
+  const isRunningRef = useRef(false);
 
   const handleMake = async () => {
-    // Guard against double-invocation before React applies disabled state
-    if (isRunning) {
+    // Use a ref for synchronous double-click prevention.
+    // React state updates are async, so checking `isRunning` alone
+    // cannot prevent rapid duplicate invocations.
+    if (isRunningRef.current) {
       return;
     }
-
+    isRunningRef.current = true;
     setIsRunning(true);
     setResult(null);
 
@@ -101,6 +105,7 @@ function useMakeArtifact(
       const errorMsg = error instanceof Error ? error.message : 'Unknown error';
       setResult(`Error: ${errorMsg}`);
     } finally {
+      isRunningRef.current = false;
       setIsRunning(false);
     }
   };
@@ -135,10 +140,12 @@ function MakeResult({
  */
 function MakeButton({
   isRunning,
-  onClick
+  onClick,
+  artifactName
 }: {
   isRunning: boolean;
   onClick: (e: React.MouseEvent) => void;
+  artifactName: string;
 }): React.ReactElement {
   return (
     <button
@@ -149,6 +156,9 @@ function MakeButton({
       }}
       disabled={isRunning}
       className="jp-projspec-make-button"
+      aria-label={
+        isRunning ? `Running ${artifactName}` : `Make ${artifactName}`
+      }
     >
       {isRunning ? '⏳ Running...' : '▶️ Make'}
     </button>
@@ -196,7 +206,11 @@ function StringArtifactItem({
             {status}
           </span>
         )}
-        <MakeButton isRunning={isRunning} onClick={handleMake} />
+        <MakeButton
+          isRunning={isRunning}
+          onClick={handleMake}
+          artifactName={name}
+        />
       </div>
       <code
         className="jp-projspec-artifact-cmd"
@@ -262,7 +276,13 @@ function ObjectArtifactItem({
             {artifact.status}
           </span>
         )}
-        {hasCmd && <MakeButton isRunning={isRunning} onClick={handleMake} />}
+        {hasCmd && (
+          <MakeButton
+            isRunning={isRunning}
+            onClick={handleMake}
+            artifactName={name}
+          />
+        )}
       </summary>
       <div className="jp-projspec-artifact-details">
         {displayFields.length > 0 ? (

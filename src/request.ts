@@ -18,7 +18,7 @@ import { ServerConnection } from '@jupyterlab/services';
 export async function requestAPI<T>(
   endPoint = '',
   init: RequestInit = {}
-): Promise<T> {
+): Promise<T | undefined> {
   // Make request to Jupyter API
   const settings = ServerConnection.makeSettings();
   const requestUrl = URLExt.join(
@@ -70,7 +70,7 @@ export async function requestAPI<T>(
 
   // Allow empty responses for 204 No Content or other success codes
   if (!text) {
-    return undefined as unknown as T;
+    return undefined;
   }
 
   try {

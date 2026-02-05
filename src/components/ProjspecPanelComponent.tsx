@@ -103,7 +103,13 @@ export function ProjspecPanelComponent({
         return;
       }
 
-      if (response.error) {
+      if (!response) {
+        setState({
+          loading: false,
+          error: 'Empty response from server',
+          project: null
+        });
+      } else if (response.error) {
         setState({
           loading: false,
           error: response.error,
