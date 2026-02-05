@@ -1,6 +1,7 @@
 import json
 import os
 import sys
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -339,3 +340,246 @@ class TestScanPathValidation:
                 params={"path": "no_such_directory"},
             )
         assert exc_info.value.response.code == 404
+
+
+# ---------------------------------------------------------------------------
+# Unit tests for _run_with_output_limit
+# ---------------------------------------------------------------------------
+
+class TestRunWithOutputLimit:
+    """Tests for the _run_with_output_limit helper function."""
+
+    def test_successful_command(self):
+        """A simple echo command should return its output."""
+        from jupyter_projspec.routes import _run_with_output_limit
+
+        result = _run_with_output_limit(
+            ["echo", "hello world"], cwd="/tmp", timeout=10
+        )
+        assert result["returncode"] == 0
+        assert "hello world" in result["stdout"]
+        assert result["truncated"] is False
+
+    def test_failing_command(self):
+        """A command that exits non-zero should report the exit code."""
+        from jupyter_projspec.routes import _run_with_output_limit
+
+        result = _run_with_output_limit(
+            [sys.executable, "-c", "import sys; sys.exit(42)"],
+            cwd="/tmp",
+            timeout=10,
+        )
+        assert result["returncode"] == 42
+
+    def test_stderr_captured(self):
+        """Stderr output should be captured separately."""
+        from jupyter_projspec.routes import _run_with_output_limit
+
+        result = _run_with_output_limit(
+            [sys.executable, "-c", "import sys; sys.stderr.write('oops\\n')"],
+            cwd="/tmp",
+            timeout=10,
+        )
+        assert "oops" in result["stderr"]
+
+    def test_timeout_raises(self):
+        """A command exceeding the timeout should raise TimeoutExpired."""
+        import subprocess
+        from jupyter_projspec.routes import _run_with_output_limit
+
+        with pytest.raises(subprocess.TimeoutExpired):
+            _run_with_output_limit(
+                [sys.executable, "-c", "import time; time.sleep(60)"],
+                cwd="/tmp",
+                timeout=1,
+            )
+
+    def test_output_truncation(self):
+        """Output exceeding MAX_OUTPUT_BYTES should be truncated."""
+        from jupyter_projspec.routes import (
+            MAX_OUTPUT_BYTES,
+            _run_with_output_limit,
+        )
+
+        # Generate output larger than the limit
+        script = (
+            "import sys; "
+            f"sys.stdout.write('A' * {MAX_OUTPUT_BYTES + 1000})"
+        )
+        result = _run_with_output_limit(
+            [sys.executable, "-c", script], cwd="/tmp", timeout=30
+        )
+        assert result["truncated"] is True
+        assert result["stdout"].endswith("... (output truncated by server)")
+        # The captured content should not exceed the limit + notice
+        assert len(result["stdout"]) <= MAX_OUTPUT_BYTES + 200
+
+
+# ---------------------------------------------------------------------------
+# Unit tests for _get_safe_env
+# ---------------------------------------------------------------------------
+
+class TestGetSafeEnv:
+    """Tests for the _get_safe_env environment sanitization."""
+
+    def test_whitelisted_vars_passed(self):
+        """Variables in the whitelist should be present in the result."""
+        from jupyter_projspec.routes import _get_safe_env
+
+        env = _get_safe_env()
+        # PATH should always be present in any real environment
+        assert "PATH" in env
+
+    def test_secret_vars_excluded(self):
+        """Variables not in the whitelist should be excluded."""
+        from jupyter_projspec.routes import _get_safe_env
+
+        sentinel = "__TEST_SECRET_KEY_12345__"
+        os.environ[sentinel] = "leaked"
+        try:
+            env = _get_safe_env()
+            assert sentinel not in env
+        finally:
+            del os.environ[sentinel]
+
+    def test_only_whitelisted_keys(self):
+        """Every key in the result must be in the whitelist."""
+        from jupyter_projspec.routes import _SAFE_ENV_VARS, _get_safe_env
+
+        env = _get_safe_env()
+        for key in env:
+            assert key in _SAFE_ENV_VARS, f"Unexpected key in safe env: {key}"
+
+
+# ---------------------------------------------------------------------------
+# Helper: mock projspec artifact for integration tests
+# ---------------------------------------------------------------------------
+
+def _mock_projspec_project(cmd):
+    """Create a mock projspec.Project whose single artifact runs `cmd`.
+
+    Returns a factory suitable for use with ``patch('projspec.Project')``.
+    The mock project has one spec 'test_spec' with one artifact 'test_art'.
+    """
+    artifact = MagicMock()
+    artifact.cmd = cmd
+
+    spec = MagicMock()
+    spec.artifacts = {"test_art": artifact}
+
+    project = MagicMock()
+    project.specs = {"test_spec": spec}
+
+    return MagicMock(return_value=project)
+
+
+# ---------------------------------------------------------------------------
+# Make endpoint integration tests (with mock projspec)
+# ---------------------------------------------------------------------------
+
+class TestMakeExecution:
+    """Integration tests for successful make execution, timeouts, and output."""
+
+    @patch("jupyter_projspec.routes.projspec.Project")
+    async def test_successful_execution(self, mock_project_cls, jp_fetch):
+        """A successful command should return stdout and returncode 0."""
+        mock_project_cls.side_effect = (
+            lambda path: _mock_projspec_project(["echo", "it works"]).return_value
+        )
+
+        response = await jp_fetch(
+            "jupyter-projspec", "make",
+            method="POST",
+            body=json.dumps({
+                "spec_type": "test_spec",
+                "artifact_name": "test_art",
+            }).encode(),
+        )
+        assert response.code == 200
+        payload = json.loads(response.body)
+        assert payload["returncode"] == 0
+        assert "it works" in payload["stdout"]
+
+    @patch("jupyter_projspec.routes.projspec.Project")
+    async def test_failed_command(self, mock_project_cls, jp_fetch):
+        """A command that exits non-zero should report the exit code."""
+        mock_project_cls.side_effect = (
+            lambda path: _mock_projspec_project(
+                [sys.executable, "-c", "import sys; sys.exit(1)"]
+            ).return_value
+        )
+
+        response = await jp_fetch(
+            "jupyter-projspec", "make",
+            method="POST",
+            body=json.dumps({
+                "spec_type": "test_spec",
+                "artifact_name": "test_art",
+            }).encode(),
+        )
+        assert response.code == 200
+        payload = json.loads(response.body)
+        assert payload["returncode"] == 1
+
+    @patch("jupyter_projspec.routes.COMMAND_TIMEOUT_SECONDS", 1)
+    @patch("jupyter_projspec.routes.projspec.Project")
+    async def test_timeout_returns_504(self, mock_project_cls, jp_fetch):
+        """A command exceeding the timeout should return 504."""
+        mock_project_cls.side_effect = (
+            lambda path: _mock_projspec_project(
+                [sys.executable, "-c", "import time; time.sleep(60)"]
+            ).return_value
+        )
+
+        with pytest.raises(Exception) as exc_info:
+            await jp_fetch(
+                "jupyter-projspec", "make",
+                method="POST",
+                body=json.dumps({
+                    "spec_type": "test_spec",
+                    "artifact_name": "test_art",
+                }).encode(),
+            )
+        assert exc_info.value.response.code == 504
+        payload = json.loads(exc_info.value.response.body)
+        assert "timed out" in payload["error"]
+
+    @patch("jupyter_projspec.routes.projspec.Project")
+    async def test_artifact_not_found(self, mock_project_cls, jp_fetch):
+        """Requesting a nonexistent artifact should return 400."""
+        mock_project_cls.side_effect = (
+            lambda path: _mock_projspec_project(["echo", "hi"]).return_value
+        )
+
+        with pytest.raises(Exception) as exc_info:
+            await jp_fetch(
+                "jupyter-projspec", "make",
+                method="POST",
+                body=json.dumps({
+                    "spec_type": "test_spec",
+                    "artifact_name": "no_such_artifact",
+                }).encode(),
+            )
+        assert exc_info.value.response.code == 400
+        payload = json.loads(exc_info.value.response.body)
+        assert "Artifact not found" in payload["error"]
+
+    @patch("jupyter_projspec.routes.projspec.Project")
+    async def test_string_command_handled(self, mock_project_cls, jp_fetch):
+        """A string cmd (not list) should be split via shlex and executed."""
+        mock_project_cls.side_effect = (
+            lambda path: _mock_projspec_project("echo string cmd").return_value
+        )
+
+        response = await jp_fetch(
+            "jupyter-projspec", "make",
+            method="POST",
+            body=json.dumps({
+                "spec_type": "test_spec",
+                "artifact_name": "test_art",
+            }).encode(),
+        )
+        assert response.code == 200
+        payload = json.loads(response.body)
+        assert payload["returncode"] == 0
+        assert "string cmd" in payload["stdout"]
