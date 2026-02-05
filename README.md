@@ -30,15 +30,15 @@ A dedicated right sidebar panel provides detailed project information:
 
 jupyter-projspec recognizes many project types through projspec:
 
-| Category | Types |
-|----------|-------|
-| **Version Control** | Git Repository |
-| **Python** | Python Library, Poetry, uv, Pixi, Conda Project, Conda Recipe, PyScript, Briefcase |
-| **JavaScript** | Node.js, Yarn, JupyterLab Extension |
-| **Rust** | Rust Crate |
-| **Documentation** | mdBook, Read the Docs |
-| **Data & ML** | Data Package, Hugging Face Repo |
-| **IDEs** | VS Code, JetBrains IDE, Zed, NVIDIA AI Workbench |
+| Category            | Types                                                                              |
+| ------------------- | ---------------------------------------------------------------------------------- |
+| **Version Control** | Git Repository                                                                     |
+| **Python**          | Python Library, Poetry, uv, Pixi, Conda Project, Conda Recipe, PyScript, Briefcase |
+| **JavaScript**      | Node.js, Yarn, JupyterLab Extension                                                |
+| **Rust**            | Rust Crate                                                                         |
+| **Documentation**   | mdBook, Read the Docs                                                              |
+| **Data & ML**       | Data Package, Hugging Face Repo                                                    |
+| **IDEs**            | VS Code, JetBrains IDE, Zed, NVIDIA AI Workbench                                   |
 
 ## Requirements
 
@@ -120,6 +120,7 @@ jupyter lab
 With watch mode running, saved TypeScript changes rebuild automatically. Refresh your browser to see changes.
 
 **After editing Python** (files in `jupyter_projspec/`):
+
 - Restart the JupyterLab server (no rebuild needed)
 
 ### Development Uninstall
@@ -180,9 +181,9 @@ jupyter-projspec/
 
 ### API Endpoints
 
-| Endpoint | Method | Description |
-|----------|--------|-------------|
-| `/jupyter-projspec/scan` | GET | Scan a directory and return projspec data |
+| Endpoint                 | Method | Description                               |
+| ------------------------ | ------ | ----------------------------------------- |
+| `/jupyter-projspec/scan` | GET    | Scan a directory and return projspec data |
 
 ## Roadmap
 

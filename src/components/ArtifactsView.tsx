@@ -132,7 +132,9 @@ function ObjectArtifactItem({
  * Component for rendering the artifacts of a spec.
  * Handles both string artifacts (compact mode) and object artifacts.
  */
-export function ArtifactsView({ artifacts }: IArtifactsViewProps): React.ReactElement {
+export function ArtifactsView({
+  artifacts
+}: IArtifactsViewProps): React.ReactElement {
   const artifactKeys = Object.keys(artifacts);
 
   if (artifactKeys.length === 0) {
@@ -169,4 +171,3 @@ export function ArtifactsView({ artifacts }: IArtifactsViewProps): React.ReactEl
     </div>
   );
 }
-

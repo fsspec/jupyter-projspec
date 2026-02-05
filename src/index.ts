@@ -61,7 +61,7 @@ const plugin: JupyterFrontEndPlugin<void> = {
 
     // Create chips widget for the file browser
     // Clicking a chip opens/focuses the sidebar panel and expands the spec
-    const chipsWidget = new ProjspecChipsWidget(fileBrowser, (specName) => {
+    const chipsWidget = new ProjspecChipsWidget(fileBrowser, specName => {
       // Expand the clicked spec in the panel
       panel.expandSpec(specName);
       // Open/focus the sidebar panel
@@ -77,10 +77,7 @@ const plugin: JupyterFrontEndPlugin<void> = {
       if (breadcrumbs && breadcrumbs.parentNode) {
         // Inject the chips widget after the breadcrumbs
         const chipsNode = chipsWidget.node;
-        breadcrumbs.parentNode.insertBefore(
-          chipsNode,
-          breadcrumbs.nextSibling
-        );
+        breadcrumbs.parentNode.insertBefore(chipsNode, breadcrumbs.nextSibling);
         // Ensure the widget is properly attached to Lumino
         chipsWidget.processMessage({ type: 'after-attach' } as any);
       } else {

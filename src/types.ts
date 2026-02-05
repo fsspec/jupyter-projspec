@@ -72,4 +72,3 @@ export interface IScanResponse {
   project?: IProject;
   error?: string;
 }
-

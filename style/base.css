@@ -607,7 +607,10 @@
   font-weight: 600;
   border: none;
   cursor: pointer;
-  transition: filter 0.15s ease, transform 0.1s ease, box-shadow 0.15s ease;
+  transition:
+    filter 0.15s ease,
+    transform 0.1s ease,
+    box-shadow 0.15s ease;
   white-space: nowrap;
   line-height: 1;
   font-family: var(--jp-ui-font-family);
