@@ -68,6 +68,8 @@ const plugin: JupyterFrontEndPlugin<void> = {
       app.shell.activateById(PANEL_ID);
     });
 
+    console.log('JupyterLab extension jupyter-projspec is activated!');
+
     // Defer DOM injection until after the app is fully restored
     // This ensures the breadcrumbs element exists in the DOM
     void app.restored.then(() => {
