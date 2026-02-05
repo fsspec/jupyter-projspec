@@ -1,4 +1,3 @@
-import asyncio
 import json
 import logging
 import os
@@ -16,11 +15,6 @@ import tornado
 logger = logging.getLogger(__name__)
 
 _executor = ThreadPoolExecutor(max_workers=10)
-
-# Per-user concurrency tracking for the make endpoint
-_user_semaphores: dict[str, asyncio.Semaphore] = {}
-_semaphore_lock = asyncio.Lock()
-MAX_CONCURRENT_MAKES_PER_USER = 3
 
 # Maximum bytes of stdout/stderr to capture from a subprocess
 MAX_OUTPUT_BYTES = 1024 * 1024  # 1 MB per stream
@@ -205,21 +199,6 @@ def _run_with_output_limit(
     }
 
 
-async def _get_user_semaphore(user_key: str) -> asyncio.Semaphore:
-    """Get or create a per-user semaphore for concurrency limiting.
-
-    Uses an asyncio.Lock to ensure thread-safe creation of semaphores,
-    preventing the race condition where multiple requests could bypass
-    the concurrency limit via non-atomic check-then-increment.
-    """
-    async with _semaphore_lock:
-        if user_key not in _user_semaphores:
-            _user_semaphores[user_key] = asyncio.Semaphore(
-                MAX_CONCURRENT_MAKES_PER_USER
-            )
-        return _user_semaphores[user_key]
-
-
 class MakeRouteHandler(APIHandler):
     """Handler for executing artifact build commands via projspec.
 
@@ -274,23 +253,6 @@ class MakeRouteHandler(APIHandler):
             self.finish(json.dumps({"error": "Field 'path' must be a string"}))
             return
 
-        # Per-user concurrency limit using asyncio.Semaphore (atomic)
-        user = self.current_user or "__anonymous__"
-        user_key = str(user)
-        semaphore = await _get_user_semaphore(user_key)
-
-        # Non-blocking acquire: reject immediately if limit is reached.
-        # In a single-threaded event loop, locked() check + acquire() is
-        # safe because no other coroutine can interleave between them
-        # without an await point.
-        if semaphore.locked():
-            self.set_status(429)
-            self.finish(json.dumps({
-                "error": "Too many concurrent make requests"
-            }))
-            return
-
-        await semaphore.acquire()
         try:
             result = await tornado.ioloop.IOLoop.current().run_in_executor(
                 _executor, self._run_make_command, data
@@ -312,8 +274,6 @@ class MakeRouteHandler(APIHandler):
             logger.error("Make command error: %s", e, exc_info=True)
             self.set_status(500)
             self.finish(json.dumps({"error": "Internal server error"}))
-        finally:
-            semaphore.release()
 
     def _run_make_command(self, data: dict) -> dict:
         """Resolve and run an artifact command via projspec (called in thread pool).
