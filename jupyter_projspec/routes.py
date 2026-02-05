@@ -22,16 +22,6 @@ MAX_OUTPUT_BYTES = 1024 * 1024  # 1 MB per stream
 # Timeout for command execution in seconds
 COMMAND_TIMEOUT_SECONDS = 120
 
-# Safe environment variables to pass to subprocesses
-_SAFE_ENV_VARS = frozenset({
-    "PATH", "HOME", "USER", "LOGNAME", "LANG", "LC_ALL", "LC_CTYPE",
-    "TERM", "TMPDIR", "TMP", "TEMP", "SHELL",
-    # Python/Node toolchain variables needed for builds
-    "VIRTUAL_ENV", "CONDA_PREFIX", "CONDA_DEFAULT_ENV",
-    "PYTHONPATH", "PYTHONHOME", "NODE_PATH", "NPM_CONFIG_PREFIX",
-})
-
-
 class PathSecurityError(ValueError):
     """Raised when a path violates security constraints (traversal, symlink escape)."""
 
@@ -46,15 +36,6 @@ class PathNotDirectoryError(ValueError):
 
 class ArtifactLookupError(ValueError):
     """Raised when a spec type or artifact name cannot be found in projspec."""
-
-
-def _get_safe_env() -> dict[str, str]:
-    """Return a sanitized copy of the environment for subprocess execution.
-
-    Only passes through whitelisted variables to prevent leaking secrets
-    like API keys or database credentials to build commands.
-    """
-    return {k: v for k, v in os.environ.items() if k in _SAFE_ENV_VARS}
 
 
 def resolve_path(contents_manager: ContentsManager, relative_path: str) -> str:
@@ -148,7 +129,6 @@ def _run_with_output_limit(
         stderr=subprocess.PIPE,
         cwd=cwd,
         shell=False,
-        env=_get_safe_env(),
     )
 
     stdout_data: list[bytes] = []
@@ -157,10 +137,12 @@ def _run_with_output_limit(
     stdout_thread = threading.Thread(
         target=_read_stream,
         args=(process.stdout, MAX_OUTPUT_BYTES, stdout_data),
+        daemon=True,
     )
     stderr_thread = threading.Thread(
         target=_read_stream,
         args=(process.stderr, MAX_OUTPUT_BYTES, stderr_data),
+        daemon=True,
     )
 
     stdout_thread.start()
@@ -173,9 +155,21 @@ def _run_with_output_limit(
         stdout_thread.join(timeout=5)
         stderr_thread.join(timeout=5)
         raise
+    finally:
+        # Close streams to release file descriptors promptly
+        if process.stdout:
+            process.stdout.close()
+        if process.stderr:
+            process.stderr.close()
 
     stdout_thread.join(timeout=5)
     stderr_thread.join(timeout=5)
+
+    # Guard against empty result if a reader thread didn't finish in time
+    if stdout_thread.is_alive():
+        logger.warning("stdout reader thread did not complete within timeout")
+    if stderr_thread.is_alive():
+        logger.warning("stderr reader thread did not complete within timeout")
 
     stdout_bytes = stdout_data[0] if stdout_data else b""
     stderr_bytes = stderr_data[0] if stderr_data else b""
@@ -304,9 +298,16 @@ class MakeRouteHandler(APIHandler):
         artifact = spec.artifacts[artifact_name]
         command = artifact.cmd
 
-        # Handle both string and list command formats from projspec
+        # Handle both string and list command formats from projspec.
+        # Note: shell=False means shell features (pipes, redirects) won't work;
+        # commands are executed directly via execvp.
         if isinstance(command, str):
-            command_list = shlex.split(command)
+            try:
+                command_list = shlex.split(command, posix=(os.name != "nt"))
+            except ValueError as e:
+                raise ArtifactLookupError(
+                    f"Artifact '{artifact_name}' has invalid command syntax: {e}"
+                )
         elif isinstance(command, list):
             command_list = command
         else:

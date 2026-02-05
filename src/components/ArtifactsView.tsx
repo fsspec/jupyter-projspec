@@ -231,7 +231,10 @@ function ObjectArtifactItem({
   path,
   specType
 }: IObjectArtifactItemProps): React.ReactElement {
-  const hasCmd = artifact.cmd !== undefined && artifact.cmd !== '';
+  const hasCmd =
+    artifact.cmd != null &&
+    typeof artifact.cmd === 'string' &&
+    artifact.cmd.trim() !== '';
   const { isRunning, result, handleMake } = useMakeArtifact(
     path,
     specType,

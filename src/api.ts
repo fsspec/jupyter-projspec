@@ -21,6 +21,8 @@ interface IMakeResponse {
   stdout: string;
   stderr: string;
   returncode: number;
+  /** True when stdout or stderr was truncated by the server. */
+  truncated: boolean;
 }
 
 /**

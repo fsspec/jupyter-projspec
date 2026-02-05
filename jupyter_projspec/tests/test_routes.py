@@ -416,42 +416,6 @@ class TestRunWithOutputLimit:
 
 
 # ---------------------------------------------------------------------------
-# Unit tests for _get_safe_env
-# ---------------------------------------------------------------------------
-
-class TestGetSafeEnv:
-    """Tests for the _get_safe_env environment sanitization."""
-
-    def test_whitelisted_vars_passed(self):
-        """Variables in the whitelist should be present in the result."""
-        from jupyter_projspec.routes import _get_safe_env
-
-        env = _get_safe_env()
-        # PATH should always be present in any real environment
-        assert "PATH" in env
-
-    def test_secret_vars_excluded(self):
-        """Variables not in the whitelist should be excluded."""
-        from jupyter_projspec.routes import _get_safe_env
-
-        sentinel = "__TEST_SECRET_KEY_12345__"
-        os.environ[sentinel] = "leaked"
-        try:
-            env = _get_safe_env()
-            assert sentinel not in env
-        finally:
-            del os.environ[sentinel]
-
-    def test_only_whitelisted_keys(self):
-        """Every key in the result must be in the whitelist."""
-        from jupyter_projspec.routes import _SAFE_ENV_VARS, _get_safe_env
-
-        env = _get_safe_env()
-        for key in env:
-            assert key in _SAFE_ENV_VARS, f"Unexpected key in safe env: {key}"
-
-
-# ---------------------------------------------------------------------------
 # Helper: mock projspec artifact for integration tests
 # ---------------------------------------------------------------------------
 
@@ -583,3 +547,45 @@ class TestMakeExecution:
         payload = json.loads(response.body)
         assert payload["returncode"] == 0
         assert "string cmd" in payload["stdout"]
+
+    @patch("jupyter_projspec.routes.projspec.Project")
+    async def test_empty_command_list_returns_400(self, mock_project_cls, jp_fetch):
+        """An artifact with an empty command list should return 400."""
+        mock_project_cls.side_effect = (
+            lambda path: _mock_projspec_project([]).return_value
+        )
+
+        with pytest.raises(Exception) as exc_info:
+            await jp_fetch(
+                "jupyter-projspec", "make",
+                method="POST",
+                body=json.dumps({
+                    "spec_type": "test_spec",
+                    "artifact_name": "test_art",
+                }).encode(),
+            )
+        assert exc_info.value.response.code == 400
+        payload = json.loads(exc_info.value.response.body)
+        assert "empty command" in payload["error"]
+
+    @patch("jupyter_projspec.routes.projspec.Project")
+    async def test_malformed_string_command_returns_400(
+        self, mock_project_cls, jp_fetch
+    ):
+        """A string command with unbalanced quotes should return 400."""
+        mock_project_cls.side_effect = (
+            lambda path: _mock_projspec_project("echo 'unbalanced").return_value
+        )
+
+        with pytest.raises(Exception) as exc_info:
+            await jp_fetch(
+                "jupyter-projspec", "make",
+                method="POST",
+                body=json.dumps({
+                    "spec_type": "test_spec",
+                    "artifact_name": "test_art",
+                }).encode(),
+            )
+        assert exc_info.value.response.code == 400
+        payload = json.loads(exc_info.value.response.body)
+        assert "command syntax" in payload["error"]
