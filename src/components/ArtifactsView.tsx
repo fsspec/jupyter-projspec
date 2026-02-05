@@ -93,11 +93,12 @@ function useMakeArtifact(
         const output = truncateOutput(response.stdout.trim());
         setResult(output ? `Success\n${output}` : 'Success');
       } else {
-        setResult(`Failed (exit ${response.returncode}): ${truncateOutput(response.stderr)}`);
+        setResult(
+          `Failed (exit ${response.returncode}): ${truncateOutput(response.stderr)}`
+        );
       }
     } catch (error: unknown) {
-      const errorMsg =
-        error instanceof Error ? error.message : 'Unknown error';
+      const errorMsg = error instanceof Error ? error.message : 'Unknown error';
       setResult(`Error: ${errorMsg}`);
     } finally {
       setIsRunning(false);
@@ -110,7 +111,11 @@ function useMakeArtifact(
 /**
  * Shared component for displaying make result output.
  */
-function MakeResult({ result }: { result: string | null }): React.ReactElement | null {
+function MakeResult({
+  result
+}: {
+  result: string | null;
+}): React.ReactElement | null {
   if (!result) {
     return null;
   }
@@ -137,7 +142,7 @@ function MakeButton({
 }): React.ReactElement {
   return (
     <button
-      onClick={(e) => {
+      onClick={e => {
         e.stopPropagation();
         e.preventDefault();
         onClick(e);

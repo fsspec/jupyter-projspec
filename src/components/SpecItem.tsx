@@ -126,7 +126,11 @@ export function SpecItem({
           {hasArtifacts && (
             <div className="jp-projspec-spec-section">
               <div className="jp-projspec-section-header">Artifacts</div>
-              <ArtifactsView artifacts={artifacts} path={path} specType={name} />
+              <ArtifactsView
+                artifacts={artifacts}
+                path={path}
+                specType={name}
+              />
             </div>
           )}
         </div>
