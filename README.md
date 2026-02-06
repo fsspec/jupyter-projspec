@@ -2,6 +2,7 @@
 
 [![Github Actions Status](https://github.com/fsspec/jupyter-projspec/workflows/Build/badge.svg)](https://github.com/fsspec/jupyter-projspec/actions/workflows/build.yml)
 [![Binder](https://mybinder.org/badge_logo.svg)](https://mybinder.org/v2/gh/fsspec/jupyter-projspec/main?urlpath=lab)
+[![jupyter-projspec](https://marketplace.orbrx.io/api/badge/jupyter-projspec?metric=downloads&leftColor=%23555&rightColor=%23F37620&style=flat)](https://marketplace.orbrx.io/extensions/jupyter-projspec)
 
 A JupyterLab extension that brings [projspec](https://github.com/fsspec/projspec) project introspection directly into your development workflow. See at a glance what kind of project you're working in and explore its structure, metadata, and buildable artifacts.
 
