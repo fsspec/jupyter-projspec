@@ -1,3 +1,4 @@
+import atexit
 import json
 import logging
 import os
@@ -14,10 +15,31 @@ import tornado
 
 logger = logging.getLogger(__name__)
 
+# Global thread pool for executing make commands asynchronously.
+# Registers cleanup via atexit to ensure graceful shutdown on server exit.
 _executor = ThreadPoolExecutor(max_workers=10)
+atexit.register(lambda: _executor.shutdown(wait=True))
 
 # Maximum concurrent make commands allowed (prevents thread pool exhaustion
 # from long-running commands that each block for up to COMMAND_TIMEOUT_SECONDS)
+#
+# DESIGN DECISION: Single-process deployment only
+# ================================================
+# This concurrency counter is process-local and does NOT coordinate across
+# multiple Jupyter server workers. In multi-process deployments (e.g., using
+# multiple gunicorn workers), each process maintains its own counter, allowing
+# up to MAX_CONCURRENT_COMMANDS * num_processes total concurrent commands.
+#
+# This is an intentional design trade-off for simplicity:
+# - Single-process deployments (development, small teams): Works as intended
+# - Multi-process deployments: Per-process limits still prevent thread exhaustion
+#
+# If cross-process coordination is needed in the future, consider using:
+# - Shared memory (multiprocessing.Manager)
+# - Redis/memcached for distributed locking
+# - Database-backed semaphore
+#
+# For now, this implementation targets single-process Jupyter servers.
 MAX_CONCURRENT_COMMANDS = 5
 _active_commands = 0
 _active_commands_lock = threading.Lock()
@@ -104,23 +126,42 @@ def resolve_path(contents_manager: ContentsManager, relative_path: str) -> str:
     return absolute_path
 
 
-def _read_stream(stream, max_bytes: int, result: list[bytes]) -> None:
+def _read_stream(stream, max_bytes: int, result: list) -> None:
     """Read from a stream up to max_bytes, discarding the rest.
 
     Reads in chunks to avoid loading unbounded output into memory.
     Once max_bytes is reached, continues draining the stream (to avoid
     blocking the subprocess) but discards the excess data.
+
+    Uses O(n) list accumulation and join instead of O(n²) concatenation.
+
+    Args:
+        stream: The stream to read from
+        max_bytes: Maximum bytes to capture
+        result: List to append (data: bytes, truncated: bool) tuple to
     """
-    data = b""
-    while len(data) < max_bytes:
-        chunk = stream.read(min(4096, max_bytes - len(data)))
+    chunks = []
+    total_bytes = 0
+    while total_bytes < max_bytes:
+        chunk = stream.read(min(4096, max_bytes - total_bytes))
         if not chunk:
             break
-        data += chunk
+        chunks.append(chunk)
+        total_bytes += len(chunk)
+
     # Drain remaining output so the subprocess doesn't block on a full pipe
+    # Track if we discarded any data (indicates truncation)
+    truncated = False
     while stream.read(65536):
-        pass
-    result.append(data)
+        truncated = True
+
+    # Also truncated if we hit the limit exactly and stream wasn't exhausted
+    if total_bytes >= max_bytes and not truncated:
+        # Check if there was more data by attempting one more read
+        if stream.read(1):
+            truncated = True
+
+    result.append((b"".join(chunks), truncated))
 
 
 class OutputCaptureError(RuntimeError):
@@ -200,11 +241,16 @@ def _run_with_output_limit(
         logger.error("Reader threads did not complete within timeout")
         raise OutputCaptureError("Failed to capture complete command output")
 
-    stdout_bytes = stdout_data[0] if stdout_data else b""
-    stderr_bytes = stderr_data[0] if stderr_data else b""
+    # Unpack data and truncation flags from reader threads
+    if stdout_data:
+        stdout_bytes, stdout_truncated = stdout_data[0]
+    else:
+        stdout_bytes, stdout_truncated = b"", False
 
-    stdout_truncated = len(stdout_bytes) >= MAX_OUTPUT_BYTES
-    stderr_truncated = len(stderr_bytes) >= MAX_OUTPUT_BYTES
+    if stderr_data:
+        stderr_bytes, stderr_truncated = stderr_data[0]
+    else:
+        stderr_bytes, stderr_truncated = b"", False
 
     stdout = stdout_bytes.decode("utf-8", errors="replace")
     stderr = stderr_bytes.decode("utf-8", errors="replace")

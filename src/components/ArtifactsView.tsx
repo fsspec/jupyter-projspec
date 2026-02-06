@@ -1,4 +1,4 @@
-import React, { useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { IArtifact } from '../types';
 import { make } from '../api';
 
@@ -74,6 +74,14 @@ function useMakeArtifact(
   const [isRunning, setIsRunning] = useState(false);
   const [result, setResult] = useState<string | null>(null);
   const isRunningRef = useRef(false);
+  const isMountedRef = useRef(true);
+
+  // Cleanup: Mark component as unmounted to prevent setState after unmount
+  useEffect(() => {
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, []);
 
   const handleMake = async () => {
     // Use a ref for synchronous double-click prevention.
@@ -93,6 +101,11 @@ function useMakeArtifact(
         artifact_name: artifactName
       });
 
+      // Only update state if component is still mounted
+      if (!isMountedRef.current) {
+        return;
+      }
+
       if (response.returncode === 0) {
         const output = truncateOutput(response.stdout.trim());
         setResult(output ? `Success\n${output}` : 'Success');
@@ -102,11 +115,18 @@ function useMakeArtifact(
         );
       }
     } catch (error: unknown) {
+      // Only update state if component is still mounted
+      if (!isMountedRef.current) {
+        return;
+      }
       const errorMsg = error instanceof Error ? error.message : 'Unknown error';
       setResult(`Error: ${errorMsg}`);
     } finally {
       isRunningRef.current = false;
-      setIsRunning(false);
+      // Only update state if component is still mounted
+      if (isMountedRef.current) {
+        setIsRunning(false);
+      }
     }
   };
 
@@ -246,9 +266,10 @@ function ObjectArtifactItem({
   specType
 }: IObjectArtifactItemProps): React.ReactElement {
   const hasCmd =
-    artifact.cmd != null &&
-    typeof artifact.cmd === 'string' &&
-    artifact.cmd.trim() !== '';
+    artifact.cmd !== null &&
+    (typeof artifact.cmd === 'string'
+      ? artifact.cmd.trim() !== ''
+      : Array.isArray(artifact.cmd) && artifact.cmd.length > 0);
   const { isRunning, result, handleMake } = useMakeArtifact(
     path,
     specType,

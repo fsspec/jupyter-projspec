@@ -109,11 +109,8 @@ const plugin: JupyterFrontEndPlugin<void> = {
       } else {
         // Fallback: insert at position 1 in the layout.
         // This path is reached if JupyterLab's internal DOM structure changes
-        // and .jp-BreadCrumbs is no longer present.
-        console.warn(
-          'jupyter-projspec: Could not find .jp-BreadCrumbs element; ' +
-            'falling back to layout insertion'
-        );
+        // and .jp-BreadCrumbs is no longer present. This is expected in some
+        // JupyterLab versions/configurations, so no warning is logged.
         const layout = fileBrowser.layout as PanelLayout;
         layout.insertWidget(1, chipsWidget);
       }

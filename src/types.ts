@@ -9,7 +9,7 @@
  * Contains information about buildable artifacts like wheels, conda packages, etc.
  */
 export interface IArtifact {
-  cmd?: string;
+  cmd?: string | string[];
   fn?: string;
   status?: string;
   [key: string]: unknown;
