@@ -17,6 +17,23 @@ logger = logging.getLogger(__name__)
 
 # Global thread pool for executing make commands asynchronously.
 # Registers cleanup via atexit to ensure graceful shutdown on server exit.
+#
+# DESIGN DECISION: Blocking shutdown with wait=True
+# ==================================================
+# Using shutdown(wait=True) blocks server exit until all running commands complete.
+# In worst case (5 concurrent commands at 120s timeout), shutdown could block ~10 minutes.
+#
+# This is an intentional trade-off:
+# - Pro: Commands complete gracefully, no orphaned processes
+# - Con: Server shutdown/restart waits for long-running builds
+#
+# Alternatives considered but not implemented:
+# - wait=False: Commands get killed immediately (data loss risk)
+# - Shorter timeout: Requires additional logic, complexity
+# - cancel_futures=True: Requires Python 3.9+, still blocks for in-progress commands
+#
+# For most deployments, commands complete in seconds and this is not an issue.
+# If needed in the future, add a configurable shutdown timeout.
 _executor = ThreadPoolExecutor(max_workers=10)
 atexit.register(lambda: _executor.shutdown(wait=True))
 
@@ -155,12 +172,6 @@ def _read_stream(stream, max_bytes: int, result: list) -> None:
     while stream.read(65536):
         truncated = True
 
-    # Also truncated if we hit the limit exactly and stream wasn't exhausted
-    if total_bytes >= max_bytes and not truncated:
-        # Check if there was more data by attempting one more read
-        if stream.read(1):
-            truncated = True
-
     result.append((b"".join(chunks), truncated))
 
 
@@ -195,6 +206,21 @@ def _run_with_output_limit(
     stdout_data: list[bytes] = []
     stderr_data: list[bytes] = []
 
+    # Reader threads marked as daemon to prevent blocking server shutdown.
+    #
+    # DESIGN DECISION: daemon=True handles partial startup failures
+    # ==============================================================
+    # If stdout_thread.start() succeeds but stderr_thread.start() fails
+    # (e.g., OS runs out of thread resources), the exception propagates and
+    # stdout_thread may be left running. However, daemon=True ensures the
+    # thread won't prevent process exit.
+    #
+    # This is acceptable because:
+    # - Thread resource exhaustion is extremely rare in normal operation
+    # - The finally block terminates the subprocess, closing its pipes
+    # - Daemon threads automatically terminate on process exit
+    # - The alternative (try/except around each start) adds complexity
+    #   for a failure mode that requires OS-level resource exhaustion
     stdout_thread = threading.Thread(
         target=_read_stream,
         args=(process.stdout, MAX_OUTPUT_BYTES, stdout_data),
