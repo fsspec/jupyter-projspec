@@ -7,6 +7,8 @@ import { SpecItem } from './SpecItem';
  */
 interface IProjectViewProps {
   project: IProject;
+  /** Relative path from server root for the project. */
+  path: string;
   /** Spec name to expand (e.g., 'python_library'). */
   expandedSpecName?: string | null;
   /** Unique ID that changes on each expand request. */
@@ -19,6 +21,7 @@ interface IProjectViewProps {
  */
 export function ProjectView({
   project,
+  path,
   expandedSpecName,
   expandRequestId
 }: IProjectViewProps): React.ReactElement {
@@ -49,6 +52,7 @@ export function ProjectView({
             key={specName}
             name={specName}
             spec={specs[specName]}
+            path={path}
             forceExpanded={specName === expandedSpecName}
             expandRequestId={expandRequestId}
           />

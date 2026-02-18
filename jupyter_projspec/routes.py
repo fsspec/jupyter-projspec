@@ -1,10 +1,466 @@
+import atexit
 import json
+import logging
 import os
+import shlex
+import subprocess
+import threading
+from concurrent.futures import ThreadPoolExecutor
 
 from jupyter_server.base.handlers import APIHandler
+from jupyter_server.services.contents.manager import ContentsManager
 from jupyter_server.utils import url_path_join
 import projspec
 import tornado
+
+logger = logging.getLogger(__name__)
+
+# Global thread pool for executing make commands asynchronously.
+# Registers cleanup via atexit to ensure graceful shutdown on server exit.
+#
+# DESIGN DECISION: Blocking shutdown with wait=True
+# ==================================================
+# Using shutdown(wait=True) blocks server exit until all running commands complete.
+# In worst case (5 concurrent commands at 120s timeout), shutdown could block ~10 minutes.
+#
+# This is an intentional trade-off:
+# - Pro: Commands complete gracefully, no orphaned processes
+# - Con: Server shutdown/restart waits for long-running builds
+#
+# Alternatives considered but not implemented:
+# - wait=False: Commands get killed immediately (data loss risk)
+# - Shorter timeout: Requires additional logic, complexity
+# - cancel_futures=True: Requires Python 3.9+, still blocks for in-progress commands
+#
+# For most deployments, commands complete in seconds and this is not an issue.
+# If needed in the future, add a configurable shutdown timeout.
+_executor = ThreadPoolExecutor(max_workers=10)
+atexit.register(lambda: _executor.shutdown(wait=True))
+
+# Maximum concurrent make commands allowed (prevents thread pool exhaustion
+# from long-running commands that each block for up to COMMAND_TIMEOUT_SECONDS)
+#
+# DESIGN DECISION: Single-process deployment only
+# ================================================
+# This concurrency counter is process-local and does NOT coordinate across
+# multiple Jupyter server workers. In multi-process deployments (e.g., using
+# multiple gunicorn workers), each process maintains its own counter, allowing
+# up to MAX_CONCURRENT_COMMANDS * num_processes total concurrent commands.
+#
+# This is an intentional design trade-off for simplicity:
+# - Single-process deployments (development, small teams): Works as intended
+# - Multi-process deployments: Per-process limits still prevent thread exhaustion
+#
+# If cross-process coordination is needed in the future, consider using:
+# - Shared memory (multiprocessing.Manager)
+# - Redis/memcached for distributed locking
+# - Database-backed semaphore
+#
+# For now, this implementation targets single-process Jupyter servers.
+MAX_CONCURRENT_COMMANDS = 5
+_active_commands = 0
+_active_commands_lock = threading.Lock()
+
+
+class ConcurrencyLimitError(RuntimeError):
+    """Raised when the maximum number of concurrent commands is reached."""
+
+
+# Maximum bytes of stdout/stderr to capture from a subprocess
+MAX_OUTPUT_BYTES = 1024 * 1024  # 1 MB per stream
+
+# Timeout for command execution in seconds
+COMMAND_TIMEOUT_SECONDS = 120
+
+class PathSecurityError(ValueError):
+    """Raised when a path violates security constraints (traversal, symlink escape)."""
+
+
+class PathNotFoundError(ValueError):
+    """Raised when a resolved path does not exist on disk."""
+
+
+class PathNotDirectoryError(ValueError):
+    """Raised when a resolved path is not a directory."""
+
+
+class ArtifactLookupError(ValueError):
+    """Raised when a spec type or artifact name cannot be found in projspec."""
+
+
+def resolve_path(contents_manager: ContentsManager, relative_path: str) -> str:
+    """Validate and resolve a relative path to an absolute path within the server root.
+
+    Uses realpath to resolve symlinks and os.path.commonpath for containment
+    checking, which correctly handles edge cases like server_root=/ and
+    prefix-sharing siblings.
+
+    Args:
+        contents_manager: The Jupyter contents manager (provides root_dir).
+        relative_path: Path relative to the server root. Must not be absolute.
+
+    Returns:
+        The resolved absolute path.
+
+    Raises:
+        PathSecurityError: If the path is absolute or resolves outside the
+            server root (including via symlinks).
+        PathNotFoundError: If the resolved path does not exist.
+        PathNotDirectoryError: If the resolved path is not a directory.
+    """
+    if os.path.isabs(relative_path):
+        raise PathSecurityError("Path must be relative, not absolute")
+
+    server_root = os.path.realpath(contents_manager.root_dir)
+
+    if relative_path:
+        absolute_path = os.path.realpath(
+            os.path.join(server_root, relative_path)
+        )
+    else:
+        absolute_path = server_root
+
+    # Containment check using commonpath, which correctly handles:
+    # - server_root = "/" (trailing-separator approach would produce "//")
+    # - prefix-sharing siblings like /project vs /project_evil
+    try:
+        common = os.path.commonpath([server_root, absolute_path])
+    except ValueError:
+        # On Windows, commonpath raises ValueError for paths on different drives
+        raise PathSecurityError("Access denied: path outside server root")
+
+    if common != server_root:
+        raise PathSecurityError("Access denied: path outside server root")
+
+    if not os.path.exists(absolute_path):
+        raise PathNotFoundError(f"Path does not exist: {relative_path}")
+
+    if not os.path.isdir(absolute_path):
+        raise PathNotDirectoryError(
+            f"Path is not a directory: {relative_path}"
+        )
+
+    return absolute_path
+
+
+def _read_stream(stream, max_bytes: int, result: list) -> None:
+    """Read from a stream up to max_bytes, discarding the rest.
+
+    Reads in chunks to avoid loading unbounded output into memory.
+    Once max_bytes is reached, continues draining the stream (to avoid
+    blocking the subprocess) but discards the excess data.
+
+    Uses O(n) list accumulation and join instead of O(n²) concatenation.
+
+    Args:
+        stream: The stream to read from
+        max_bytes: Maximum bytes to capture
+        result: List to append (data: bytes, truncated: bool) tuple to
+    """
+    chunks = []
+    total_bytes = 0
+    while total_bytes < max_bytes:
+        chunk = stream.read(min(4096, max_bytes - total_bytes))
+        if not chunk:
+            break
+        chunks.append(chunk)
+        total_bytes += len(chunk)
+
+    # Drain remaining output so the subprocess doesn't block on a full pipe
+    # Track if we discarded any data (indicates truncation)
+    truncated = False
+    while stream.read(65536):
+        truncated = True
+
+    result.append((b"".join(chunks), truncated))
+
+
+class OutputCaptureError(RuntimeError):
+    """Raised when reader threads fail to complete and output may be incomplete."""
+
+
+def _run_with_output_limit(
+    command: list[str],
+    cwd: str,
+    timeout: int,
+) -> dict:
+    """Run a command with server-side output size limits.
+
+    Reads stdout/stderr in parallel threads, each capped at MAX_OUTPUT_BYTES.
+    Excess output is drained but discarded, preventing memory exhaustion from
+    commands that produce unbounded output.
+
+    Raises:
+        OutputCaptureError: If reader threads do not complete within 5 seconds
+            after the process exits, indicating output may be incomplete.
+        subprocess.TimeoutExpired: If the command exceeds the given timeout.
+    """
+    process = subprocess.Popen(
+        command,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        cwd=cwd,
+        shell=False,
+    )
+
+    stdout_data: list[bytes] = []
+    stderr_data: list[bytes] = []
+
+    # Reader threads marked as daemon to prevent blocking server shutdown.
+    #
+    # DESIGN DECISION: daemon=True handles partial startup failures
+    # ==============================================================
+    # If stdout_thread.start() succeeds but stderr_thread.start() fails
+    # (e.g., OS runs out of thread resources), the exception propagates and
+    # stdout_thread may be left running. However, daemon=True ensures the
+    # thread won't prevent process exit.
+    #
+    # This is acceptable because:
+    # - Thread resource exhaustion is extremely rare in normal operation
+    # - The finally block terminates the subprocess, closing its pipes
+    # - Daemon threads automatically terminate on process exit
+    # - The alternative (try/except around each start) adds complexity
+    #   for a failure mode that requires OS-level resource exhaustion
+    stdout_thread = threading.Thread(
+        target=_read_stream,
+        args=(process.stdout, MAX_OUTPUT_BYTES, stdout_data),
+        daemon=True,
+    )
+    stderr_thread = threading.Thread(
+        target=_read_stream,
+        args=(process.stderr, MAX_OUTPUT_BYTES, stderr_data),
+        daemon=True,
+    )
+
+    try:
+        stdout_thread.start()
+        stderr_thread.start()
+
+        try:
+            process.wait(timeout=timeout)
+        except subprocess.TimeoutExpired:
+            process.kill()
+            stdout_thread.join(timeout=5)
+            stderr_thread.join(timeout=5)
+            raise
+    finally:
+        # Ensure the process is terminated if still running (e.g., exception
+        # between Popen and wait, or unexpected error in thread setup)
+        if process.poll() is None:
+            process.terminate()
+            try:
+                process.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                process.kill()
+                process.wait(timeout=5)
+        # Close streams to release file descriptors promptly
+        if process.stdout:
+            process.stdout.close()
+        if process.stderr:
+            process.stderr.close()
+
+    stdout_thread.join(timeout=5)
+    stderr_thread.join(timeout=5)
+
+    # Raise if reader threads are still alive — output is incomplete
+    if stdout_thread.is_alive() or stderr_thread.is_alive():
+        logger.error("Reader threads did not complete within timeout")
+        raise OutputCaptureError("Failed to capture complete command output")
+
+    # Unpack data and truncation flags from reader threads
+    if stdout_data:
+        stdout_bytes, stdout_truncated = stdout_data[0]
+    else:
+        stdout_bytes, stdout_truncated = b"", False
+
+    if stderr_data:
+        stderr_bytes, stderr_truncated = stderr_data[0]
+    else:
+        stderr_bytes, stderr_truncated = b"", False
+
+    stdout = stdout_bytes.decode("utf-8", errors="replace")
+    stderr = stderr_bytes.decode("utf-8", errors="replace")
+
+    if stdout_truncated:
+        stdout += "\n... (output truncated by server)"
+    if stderr_truncated:
+        stderr += "\n... (output truncated by server)"
+
+    return {
+        "stdout": stdout,
+        "stderr": stderr,
+        "returncode": process.returncode,
+        "truncated": stdout_truncated or stderr_truncated,
+    }
+
+
+class MakeRouteHandler(APIHandler):
+    """Handler for executing artifact build commands via projspec.
+
+    Accepts artifact identifiers (path, spec_type, artifact_name) and resolves
+    the actual command from projspec's artifact registry. This ensures only
+    valid, known commands from the project definition can be executed.
+    """
+
+    @tornado.web.authenticated
+    async def post(self):
+        """Execute an artifact's build command.
+
+        Request Body:
+            path: Relative path from server root (empty string for root)
+            spec_type: The projspec spec type (e.g., "python_library")
+            artifact_name: The artifact name (e.g., "wheel", "build")
+
+        Returns:
+            JSON with stdout, stderr, and returncode from the command execution.
+        """
+        try:
+            data = self.get_json_body()
+        except (json.JSONDecodeError, ValueError):
+            self.set_status(400)
+            self.finish(json.dumps({"error": "Invalid or missing JSON body"}))
+            return
+
+        # Validate request body is a dict
+        if not isinstance(data, dict):
+            self.set_status(400)
+            self.finish(json.dumps({"error": "Request body must be a JSON object"}))
+            return
+
+        # Validate required fields are present, non-empty strings
+        missing_fields = []
+        for field in ("spec_type", "artifact_name"):
+            value = data.get(field)
+            if not isinstance(value, str) or not value.strip():
+                missing_fields.append(field)
+
+        if missing_fields:
+            self.set_status(400)
+            self.finish(json.dumps({
+                "error": f"Missing or invalid required fields: {', '.join(missing_fields)}"
+            }))
+            return
+
+        # Validate path field type (defaults to empty string)
+        path = data.get("path", "")
+        if not isinstance(path, str):
+            self.set_status(400)
+            self.finish(json.dumps({"error": "Field 'path' must be a string"}))
+            return
+
+        try:
+            result = await tornado.ioloop.IOLoop.current().run_in_executor(
+                _executor, self._run_make_command, data
+            )
+            self.finish(json.dumps(result))
+        except subprocess.TimeoutExpired:
+            self.set_status(504)
+            self.finish(json.dumps({"error": "Command execution timed out"}))
+        except OutputCaptureError as e:
+            logger.error("Output capture failed: %s", e)
+            self.set_status(500)
+            self.finish(json.dumps({"error": "Failed to capture command output"}))
+        except ConcurrencyLimitError:
+            self.set_status(429)
+            self.finish(json.dumps({
+                "error": "Too many concurrent commands. Please wait and try again."
+            }))
+        except PathSecurityError as e:
+            self.set_status(403)
+            self.finish(json.dumps({"error": str(e)}))
+        except PathNotFoundError as e:
+            self.set_status(404)
+            self.finish(json.dumps({"error": str(e)}))
+        except (PathNotDirectoryError, ArtifactLookupError) as e:
+            self.set_status(400)
+            self.finish(json.dumps({"error": str(e)}))
+        except Exception as e:
+            logger.error("Make command error: %s", e, exc_info=True)
+            self.set_status(500)
+            self.finish(json.dumps({"error": "Internal server error"}))
+
+    def _run_make_command(self, data: dict) -> dict:
+        """Resolve and run an artifact command via projspec (called in thread pool).
+
+        Looks up the artifact in projspec's registry and executes its command,
+        rather than accepting arbitrary shell commands from the client.
+
+        Raises:
+            ConcurrencyLimitError: If the maximum number of concurrent commands
+                is already running.
+        """
+        global _active_commands
+
+        path = data.get("path", "")
+        spec_type = data["spec_type"]
+        artifact_name = data["artifact_name"]
+
+        # Resolve and validate the path
+        absolute_path = resolve_path(self.contents_manager, path)
+
+        # Load the project via projspec
+        project = projspec.Project(absolute_path)
+
+        # Validate spec_type exists
+        if spec_type not in project.specs:
+            raise ArtifactLookupError(f"Unknown spec type: {spec_type}")
+
+        spec = project.specs[spec_type]
+
+        # Validate artifact_name exists
+        if artifact_name not in spec.artifacts:
+            raise ArtifactLookupError(f"Artifact not found: {artifact_name}")
+
+        artifact = spec.artifacts[artifact_name]
+        command = artifact.cmd
+
+        # Reject artifacts with no command defined
+        if command is None:
+            raise ArtifactLookupError(
+                f"Artifact '{artifact_name}' has no command defined"
+            )
+
+        # Handle both string and list command formats from projspec.
+        # Note: shell=False means shell features (pipes, redirects) won't work;
+        # commands are executed directly via execvp.
+        if isinstance(command, str):
+            try:
+                command_list = shlex.split(command, posix=(os.name != "nt"))
+            except ValueError as e:
+                raise ArtifactLookupError(
+                    f"Artifact '{artifact_name}' has invalid command syntax: {e}"
+                )
+        elif isinstance(command, list):
+            command_list = command
+        else:
+            raise ArtifactLookupError(
+                f"Artifact '{artifact_name}' does not have a valid command"
+            )
+
+        if not command_list:
+            raise ArtifactLookupError(
+                f"Artifact '{artifact_name}' has an empty command"
+            )
+        if not all(isinstance(c, str) for c in command_list):
+            raise ArtifactLookupError(
+                f"Artifact '{artifact_name}' has a malformed command"
+            )
+
+        # Enforce concurrency limit to prevent thread pool exhaustion from
+        # long-running commands (each can block up to COMMAND_TIMEOUT_SECONDS)
+        with _active_commands_lock:
+            if _active_commands >= MAX_CONCURRENT_COMMANDS:
+                raise ConcurrencyLimitError(
+                    f"Maximum concurrent commands ({MAX_CONCURRENT_COMMANDS}) reached"
+                )
+            _active_commands += 1
+        try:
+            return _run_with_output_limit(
+                command_list, cwd=absolute_path, timeout=COMMAND_TIMEOUT_SECONDS
+            )
+        finally:
+            with _active_commands_lock:
+                _active_commands -= 1
 
 
 class ScanRouteHandler(APIHandler):
@@ -21,37 +477,21 @@ class ScanRouteHandler(APIHandler):
             JSON with "project" key containing the to_dict() output,
             or "error" key if something went wrong.
         """
-        # Get the relative path from query parameter
         relative_path = self.get_query_argument("path", default="")
 
-        # Get the Jupyter server root directory
-        server_root = self.contents_manager.root_dir
-
-        # Resolve to absolute path
-        if relative_path:
-            absolute_path = os.path.join(server_root, relative_path)
-        else:
-            absolute_path = server_root
-
-        # Normalize the path to handle any .. or . components
-        absolute_path = os.path.normpath(absolute_path)
-
-        # Security check: ensure the resolved path is within server root
-        if not absolute_path.startswith(os.path.normpath(server_root)):
+        try:
+            absolute_path = resolve_path(self.contents_manager, relative_path)
+        except PathSecurityError as e:
             self.set_status(403)
-            self.finish(json.dumps({"error": "Access denied: path outside server root"}))
+            self.finish(json.dumps({"error": str(e)}))
             return
-
-        # Check if the path exists
-        if not os.path.exists(absolute_path):
+        except PathNotFoundError as e:
             self.set_status(404)
-            self.finish(json.dumps({"error": f"Path does not exist: {relative_path}"}))
+            self.finish(json.dumps({"error": str(e)}))
             return
-
-        # Check if the path is a directory
-        if not os.path.isdir(absolute_path):
+        except PathNotDirectoryError as e:
             self.set_status(400)
-            self.finish(json.dumps({"error": f"Path is not a directory: {relative_path}"}))
+            self.finish(json.dumps({"error": str(e)}))
             return
 
         # Scan the directory with projspec
@@ -61,24 +501,23 @@ class ScanRouteHandler(APIHandler):
 
             self.finish(json.dumps({"project": project_dict}))
         except Exception as e:
-            console_error = f"projspec error scanning {absolute_path}: {e}"
-            import sys
-
-            print(console_error, file=sys.stderr)
-
+            logger.error(
+                "projspec error scanning %s: %s", absolute_path, e, exc_info=True
+            )
             self.set_status(500)
-            self.finish(json.dumps({"error": f"Error scanning directory: {str(e)}"}))
+            self.finish(json.dumps({"error": "Error scanning directory"}))
 
 
 def setup_route_handlers(web_app):
     host_pattern = ".*$"
     base_url = web_app.settings["base_url"]
 
-    # Scan endpoint for projspec
     scan_route_pattern = url_path_join(base_url, "jupyter-projspec", "scan")
+    make_route_pattern = url_path_join(base_url, "jupyter-projspec", "make")
 
     handlers = [
         (scan_route_pattern, ScanRouteHandler),
+        (make_route_pattern, MakeRouteHandler),
     ]
 
     web_app.add_handlers(host_pattern, handlers)

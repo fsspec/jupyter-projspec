@@ -1,16 +1,32 @@
-import React from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { IArtifact } from '../types';
+import { make } from '../api';
+
+/**
+ * Maximum characters of command output to display before truncating.
+ */
+const MAX_OUTPUT_LENGTH = 10000;
 
 /**
  * Props for the ArtifactsView component.
  */
 interface IArtifactsViewProps {
   artifacts: Record<string, IArtifact | string>;
+  /** Relative path from server root for the project. */
+  path: string;
+  /** The projspec spec type (e.g., "python_library"). */
+  specType: string;
 }
 
 /**
  * Parse a compact artifact string into parts.
  * Format: "command args, status" -> { cmd: "command args", status: "status" }
+ * The last comma separates the command from the status field.
+ *
+ * Limitation: Commands containing literal commas (e.g., `echo 'a,b'`) will be
+ * incorrectly split because the projspec compact format uses comma as a
+ * delimiter. This is an inherent limitation of the compact string
+ * representation; such commands should use the object artifact format instead.
  */
 function parseCompactArtifact(value: string): { cmd: string; status: string } {
   const lastComma = value.lastIndexOf(',');
@@ -24,11 +40,161 @@ function parseCompactArtifact(value: string): { cmd: string; status: string } {
 }
 
 /**
+ * Normalize a status string into a safe CSS class token.
+ * Strips non-alphanumeric characters and lowercases.
+ * Falls back to "unknown" if the result is empty.
+ */
+function safeStatusClass(status: string): string {
+  const safe = status.toLowerCase().replace(/[^a-z0-9]/g, '-');
+  return safe || 'unknown';
+}
+
+/**
+ * Truncate a string to a maximum length, appending a notice if truncated.
+ */
+function truncateOutput(text: string): string {
+  if (text.length <= MAX_OUTPUT_LENGTH) {
+    return text;
+  }
+  return text.slice(0, MAX_OUTPUT_LENGTH) + '\n... (output truncated)';
+}
+
+/**
+ * Shared hook for running a make request and tracking state.
+ */
+function useMakeArtifact(
+  path: string,
+  specType: string,
+  artifactName: string
+): {
+  isRunning: boolean;
+  result: string | null;
+  handleMake: () => Promise<void>;
+} {
+  const [isRunning, setIsRunning] = useState(false);
+  const [result, setResult] = useState<string | null>(null);
+  const isRunningRef = useRef(false);
+  const isMountedRef = useRef(true);
+
+  // Cleanup: Mark component as unmounted to prevent setState after unmount
+  useEffect(() => {
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, []);
+
+  const handleMake = async () => {
+    // Use a ref for synchronous double-click prevention.
+    // React state updates are async, so checking `isRunning` alone
+    // cannot prevent rapid duplicate invocations.
+    if (isRunningRef.current) {
+      return;
+    }
+    isRunningRef.current = true;
+    setIsRunning(true);
+    setResult(null);
+
+    try {
+      const response = await make({
+        path,
+        spec_type: specType,
+        artifact_name: artifactName
+      });
+
+      // Only update state if component is still mounted
+      if (!isMountedRef.current) {
+        return;
+      }
+
+      if (response.returncode === 0) {
+        const output = truncateOutput(response.stdout.trim());
+        setResult(output ? `Success\n${output}` : 'Success');
+      } else {
+        setResult(
+          `Failed (exit ${response.returncode}): ${truncateOutput(response.stderr)}`
+        );
+      }
+    } catch (error: unknown) {
+      // Only update state if component is still mounted
+      if (!isMountedRef.current) {
+        return;
+      }
+      const errorMsg = error instanceof Error ? error.message : 'Unknown error';
+      setResult(`Error: ${errorMsg}`);
+    } finally {
+      isRunningRef.current = false;
+      // Only update state if component is still mounted
+      if (isMountedRef.current) {
+        setIsRunning(false);
+      }
+    }
+  };
+
+  return { isRunning, result, handleMake };
+}
+
+/**
+ * Shared component for displaying make result output.
+ */
+function MakeResult({
+  result
+}: {
+  result: string | null;
+}): React.ReactElement | null {
+  if (!result) {
+    return null;
+  }
+  return (
+    <details>
+      <summary>
+        {result.startsWith('Success') ? '✅ Success' : '❌ Failed'} (click for
+        details)
+      </summary>
+      <pre className="jp-projspec-result-output">{result}</pre>
+    </details>
+  );
+}
+
+/**
+ * Shared Make button component.
+ */
+function MakeButton({
+  isRunning,
+  onClick,
+  artifactName
+}: {
+  isRunning: boolean;
+  onClick: (e: React.MouseEvent) => void;
+  artifactName: string;
+}): React.ReactElement {
+  return (
+    <button
+      onClick={e => {
+        e.stopPropagation();
+        e.preventDefault();
+        onClick(e);
+      }}
+      disabled={isRunning}
+      className="jp-projspec-make-button"
+      aria-label={
+        isRunning ? `Running ${artifactName}` : `Make ${artifactName}`
+      }
+    >
+      {isRunning ? '⏳ Running...' : '▶️ Make'}
+    </button>
+  );
+}
+
+/**
  * Props for a single artifact item (string form).
  */
 interface IStringArtifactItemProps {
   name: string;
   artifact: string;
+  /** Relative path from server root for the project. */
+  path: string;
+  /** The projspec spec type (e.g., "python_library"). */
+  specType: string;
 }
 
 /**
@@ -37,9 +203,16 @@ interface IStringArtifactItemProps {
  */
 function StringArtifactItem({
   name,
-  artifact
+  artifact,
+  path,
+  specType
 }: IStringArtifactItemProps): React.ReactElement {
   const { cmd, status } = parseCompactArtifact(artifact);
+  const { isRunning, result, handleMake } = useMakeArtifact(
+    path,
+    specType,
+    name
+  );
 
   return (
     <div className="jp-projspec-artifact-item jp-projspec-artifact-string">
@@ -48,13 +221,24 @@ function StringArtifactItem({
         <span className="jp-projspec-artifact-name">{name}</span>
         {status && (
           <span
-            className={`jp-projspec-artifact-status jp-projspec-status-${status}`}
+            className={`jp-projspec-artifact-status jp-projspec-status-${safeStatusClass(status)}`}
           >
             {status}
           </span>
         )}
+        <MakeButton
+          isRunning={isRunning}
+          onClick={handleMake}
+          artifactName={name}
+        />
       </div>
-      <code className="jp-projspec-artifact-cmd">{cmd}</code>
+      <code
+        className="jp-projspec-artifact-cmd"
+        title="Declared command from projspec"
+      >
+        {cmd}
+      </code>
+      <MakeResult result={result} />
     </div>
   );
 }
@@ -65,15 +249,33 @@ function StringArtifactItem({
 interface IObjectArtifactItemProps {
   name: string;
   artifact: IArtifact;
+  /** Relative path from server root for the project. */
+  path: string;
+  /** The projspec spec type (e.g., "python_library"). */
+  specType: string;
 }
 
 /**
  * Component for rendering an object artifact (non-compact mode).
+ * Includes a Make button when the artifact has a command defined.
  */
 function ObjectArtifactItem({
   name,
-  artifact
+  artifact,
+  path,
+  specType
 }: IObjectArtifactItemProps): React.ReactElement {
+  const hasCmd =
+    artifact.cmd !== null &&
+    (typeof artifact.cmd === 'string'
+      ? artifact.cmd.trim() !== ''
+      : Array.isArray(artifact.cmd) && artifact.cmd.length > 0);
+  const { isRunning, result, handleMake } = useMakeArtifact(
+    path,
+    specType,
+    name
+  );
+
   // Filter out empty or internal fields
   const displayFields = Object.entries(artifact).filter(
     ([key, value]) =>
@@ -84,27 +286,31 @@ function ObjectArtifactItem({
   );
 
   return (
-    <details className="jp-projspec-artifact-item">
+    <details className="jp-projspec-artifact-item" open={false}>
       <summary className="jp-projspec-artifact-name">
         <span className="jp-projspec-artifact-icon">📦</span>
         {name}
         {artifact.status && (
           <span
-            className={`jp-projspec-artifact-status jp-projspec-status-${artifact.status}`}
+            className={`jp-projspec-artifact-status jp-projspec-status-${safeStatusClass(artifact.status)}`}
           >
             {artifact.status}
           </span>
+        )}
+        {hasCmd && (
+          <MakeButton
+            isRunning={isRunning}
+            onClick={handleMake}
+            artifactName={name}
+          />
         )}
       </summary>
       <div className="jp-projspec-artifact-details">
         {displayFields.length > 0 ? (
           <dl className="jp-projspec-artifact-fields">
-            {displayFields.map(([key, value]) => {
-              // Skip status since we show it in the summary
-              if (key === 'status') {
-                return null;
-              }
-              return (
+            {displayFields
+              .filter(([key]) => key !== 'status')
+              .map(([key, value]) => (
                 <div key={key} className="jp-projspec-artifact-field">
                   <dt>{key}</dt>
                   <dd>
@@ -115,14 +321,14 @@ function ObjectArtifactItem({
                     )}
                   </dd>
                 </div>
-              );
-            })}
+              ))}
           </dl>
         ) : (
           <div className="jp-projspec-artifact-no-details">
             No additional details
           </div>
         )}
+        <MakeResult result={result} />
       </div>
     </details>
   );
@@ -133,7 +339,9 @@ function ObjectArtifactItem({
  * Handles both string artifacts (compact mode) and object artifacts.
  */
 export function ArtifactsView({
-  artifacts
+  artifacts,
+  path,
+  specType
 }: IArtifactsViewProps): React.ReactElement {
   const artifactKeys = Object.keys(artifacts);
 
@@ -155,6 +363,8 @@ export function ArtifactsView({
               key={artifactName}
               name={artifactName}
               artifact={artifact}
+              path={path}
+              specType={specType}
             />
           );
         }
@@ -165,6 +375,8 @@ export function ArtifactsView({
             key={artifactName}
             name={artifactName}
             artifact={artifact}
+            path={path}
+            specType={specType}
           />
         );
       })}

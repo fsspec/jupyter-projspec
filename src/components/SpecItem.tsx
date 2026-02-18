@@ -10,6 +10,8 @@ import { getSpecInfo, getTextColorForBackground } from '../specInfo';
 interface ISpecItemProps {
   name: string;
   spec: ISpec;
+  /** Relative path from server root for the project. */
+  path: string;
   defaultExpanded?: boolean;
   /** When true, forces this spec to expand (triggered by chip click). */
   forceExpanded?: boolean;
@@ -24,6 +26,7 @@ interface ISpecItemProps {
 export function SpecItem({
   name,
   spec,
+  path,
   defaultExpanded = false,
   forceExpanded = false,
   expandRequestId = 0
@@ -123,7 +126,11 @@ export function SpecItem({
           {hasArtifacts && (
             <div className="jp-projspec-spec-section">
               <div className="jp-projspec-section-header">Artifacts</div>
-              <ArtifactsView artifacts={artifacts} />
+              <ArtifactsView
+                artifacts={artifacts}
+                path={path}
+                specType={name}
+              />
             </div>
           )}
         </div>

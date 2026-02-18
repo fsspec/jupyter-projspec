@@ -55,7 +55,7 @@ export function ProjspecChips({
         }
       );
 
-      if (response.project?.specs) {
+      if (response?.project?.specs) {
         setSpecs(Object.keys(response.project.specs));
       } else {
         setSpecs([]);

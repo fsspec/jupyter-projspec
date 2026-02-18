@@ -4,7 +4,7 @@ import {
   JupyterFrontEndPlugin
 } from '@jupyterlab/application';
 import { IDefaultFileBrowser } from '@jupyterlab/filebrowser';
-import { PanelLayout } from '@lumino/widgets';
+import { PanelLayout, Widget } from '@lumino/widgets';
 
 import { projspecIcon } from './icon';
 import { ProjspecPanel } from './widgets/ProjspecPanel';
@@ -19,6 +19,11 @@ const PLUGIN_ID = 'jupyter-projspec:plugin';
  * The ID for the projspec panel widget.
  */
 const PANEL_ID = 'projspec-panel';
+
+/**
+ * CSS ID for the chips container element, used for idempotency.
+ */
+const CHIPS_CONTAINER_ID = 'jp-projspec-chips-container';
 
 /**
  * Initialization data for the jupyter-projspec extension.
@@ -68,22 +73,44 @@ const plugin: JupyterFrontEndPlugin<void> = {
       app.shell.activateById(PANEL_ID);
     });
 
-    console.log('JupyterLab extension jupyter-projspec is activated!');
+    // Clean up the container div when the chips widget is disposed
+    chipsWidget.disposed.connect(() => {
+      const existing = document.getElementById(CHIPS_CONTAINER_ID);
+      if (existing) {
+        existing.remove();
+      }
+    });
 
     // Defer DOM injection until after the app is fully restored
     // This ensures the breadcrumbs element exists in the DOM
+    // Note: depends on JupyterLab internal class .jp-BreadCrumbs
     void app.restored.then(() => {
+      // Idempotency: skip if already attached (e.g., hot-reload)
+      if (chipsWidget.isAttached) {
+        return;
+      }
+
       // Find the breadcrumbs element inside the file browser
       const breadcrumbs = fileBrowser.node.querySelector('.jp-BreadCrumbs');
 
       if (breadcrumbs && breadcrumbs.parentNode) {
-        // Inject the chips widget after the breadcrumbs
-        const chipsNode = chipsWidget.node;
-        breadcrumbs.parentNode.insertBefore(chipsNode, breadcrumbs.nextSibling);
-        // Ensure the widget is properly attached to Lumino
-        chipsWidget.processMessage({ type: 'after-attach' } as any);
+        // Reuse existing container or create a new one
+        let container = document.getElementById(CHIPS_CONTAINER_ID);
+        if (!container) {
+          container = document.createElement('div');
+          container.id = CHIPS_CONTAINER_ID;
+          breadcrumbs.parentNode.insertBefore(
+            container,
+            breadcrumbs.nextSibling
+          );
+        }
+        // Use Lumino's Widget.attach for proper lifecycle management
+        Widget.attach(chipsWidget, container);
       } else {
-        // Fallback: insert at position 1 in the layout
+        // Fallback: insert at position 1 in the layout.
+        // This path is reached if JupyterLab's internal DOM structure changes
+        // and .jp-BreadCrumbs is no longer present. This is expected in some
+        // JupyterLab versions/configurations, so no warning is logged.
         const layout = fileBrowser.layout as PanelLayout;
         layout.insertWidget(1, chipsWidget);
       }

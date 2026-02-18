@@ -103,7 +103,13 @@ export function ProjspecPanelComponent({
         return;
       }
 
-      if (response.error) {
+      if (!response) {
+        setState({
+          loading: false,
+          error: 'Empty response from server',
+          project: null
+        });
+      } else if (response.error) {
         setState({
           loading: false,
           error: response.error,
@@ -200,6 +206,7 @@ export function ProjspecPanelComponent({
       {!state.loading && !state.error && state.project && (
         <ProjectView
           project={state.project}
+          path={path}
           expandedSpecName={expandedSpecName}
           expandRequestId={expandRequestId}
         />
