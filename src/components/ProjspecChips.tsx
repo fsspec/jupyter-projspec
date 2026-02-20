@@ -18,6 +18,11 @@ interface IProjspecChipsProps {
   onChipClick: (specName: string) => void;
   /** Callback when visibility should change (has specs vs no specs). */
   onVisibilityChange?: (visible: boolean) => void;
+  /**
+   * Optional fsspec URL for jupyter-fs resources.
+   * When provided, fetches from `/scan-url` (POST) instead of `/scan?path=` (GET).
+   */
+  scanUrl?: string;
 }
 
 /**
@@ -27,7 +32,8 @@ interface IProjspecChipsProps {
 export function ProjspecChips({
   path,
   onChipClick,
-  onVisibilityChange
+  onVisibilityChange,
+  scanUrl
 }: IProjspecChipsProps): React.ReactElement {
   const [specs, setSpecs] = useState<string[]>([]);
   const [error, setError] = useState(false);
@@ -35,42 +41,52 @@ export function ProjspecChips({
   const debounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const prevVisibleRef = useRef<boolean | null>(null);
 
-  const fetchSpecs = useCallback(async (scanPath: string) => {
-    // Cancel any in-flight request
-    if (abortControllerRef.current) {
-      abortControllerRef.current.abort();
-    }
+  const fetchSpecs = useCallback(
+    async (scanPath: string) => {
+      // Cancel any in-flight request
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort();
+      }
 
-    const controller = new AbortController();
-    abortControllerRef.current = controller;
+      const controller = new AbortController();
+      abortControllerRef.current = controller;
 
-    setError(false);
+      setError(false);
 
-    try {
-      const response = await requestAPI<IScanResponse>(
-        `scan?path=${encodeURIComponent(scanPath)}`,
-        {
-          method: 'GET',
-          signal: controller.signal
+      try {
+        const endpoint = scanUrl
+          ? 'scan-url'
+          : `scan?path=${encodeURIComponent(scanPath)}`;
+
+        const init: RequestInit = scanUrl
+          ? {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ url: scanUrl, subpath: scanPath }),
+              signal: controller.signal
+            }
+          : { method: 'GET', signal: controller.signal };
+
+        const response = await requestAPI<IScanResponse>(endpoint, init);
+
+        if (response?.project?.specs) {
+          setSpecs(Object.keys(response.project.specs));
+        } else {
+          setSpecs([]);
         }
-      );
+      } catch (err: unknown) {
+        // Ignore abort errors
+        if (err instanceof Error && err.name === 'AbortError') {
+          return;
+        }
 
-      if (response?.project?.specs) {
-        setSpecs(Object.keys(response.project.specs));
-      } else {
+        console.warn('Projspec chips: failed to fetch specs', err);
         setSpecs([]);
+        setError(true);
       }
-    } catch (err: unknown) {
-      // Ignore abort errors
-      if (err instanceof Error && err.name === 'AbortError') {
-        return;
-      }
-
-      console.warn('Projspec chips: failed to fetch specs', err);
-      setSpecs([]);
-      setError(true);
-    }
-  }, []);
+    },
+    [scanUrl]
+  );
 
   useEffect(() => {
     // Clear specs immediately on path change to avoid showing stale data

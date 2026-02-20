@@ -1,43 +1,30 @@
 import React, { useEffect, useRef, useCallback } from 'react';
-import { IProject, IScanResponse } from '../types';
+import {
+  IProject,
+  IScanResponse,
+  ScanSource,
+  formatScanSource,
+  buildScanEndpoint,
+  buildScanInit,
+  scanSourceKey
+} from '../types';
 import { ProjectView } from './ProjectView';
 import { requestAPI } from '../request';
 
-/**
- * Debounce delay in milliseconds.
- */
 const DEBOUNCE_DELAY = 300;
 
-/**
- * State for the panel component.
- */
 interface IPanelState {
   loading: boolean;
   error: string | null;
   project: IProject | null;
 }
 
-/**
- * Props for the ProjspecPanelComponent.
- */
 interface IProjspecPanelComponentProps {
-  path: string;
-  /** Spec name to expand (e.g., 'python_library'). */
+  scanSource: ScanSource | null;
   expandedSpecName?: string | null;
-  /** Unique ID that changes on each expand request, ensures expansion always triggers. */
   expandRequestId?: number;
 }
 
-/**
- * Format the display path.
- */
-function formatPath(path: string): string {
-  return path === '' || path === '/' ? '/ (root)' : path;
-}
-
-/**
- * Loading spinner component.
- */
 function LoadingSpinner(): React.ReactElement {
   return (
     <div className="jp-projspec-loading">
@@ -47,9 +34,6 @@ function LoadingSpinner(): React.ReactElement {
   );
 }
 
-/**
- * Error display component.
- */
 function ErrorDisplay({ message }: { message: string }): React.ReactElement {
   return (
     <div className="jp-projspec-error">
@@ -60,46 +44,50 @@ function ErrorDisplay({ message }: { message: string }): React.ReactElement {
 }
 
 /**
- * Main panel component that renders projspec data using React.
+ * Make commands only work with local paths; for jfs sources we return
+ * null so the make buttons are hidden in the UI.
+ */
+function pathForMake(source: ScanSource): string | null {
+  return source.type === 'local' ? source.path : null;
+}
+
+/**
+ * Main panel component that renders projspec data.
+ * Supports local paths and jupyter-fs URLs via the ScanSource prop.
+ * When scanSource is null the panel shows a spinner without issuing a scan.
  */
 export function ProjspecPanelComponent({
-  path,
+  scanSource,
   expandedSpecName,
   expandRequestId
 }: IProjspecPanelComponentProps): React.ReactElement {
   const [state, setState] = React.useState<IPanelState>({
-    loading: true,
+    loading: false,
     error: null,
     project: null
   });
 
-  // Keep track of the current path for comparison
-  const currentPathRef = useRef(path);
+  const currentSourceKeyRef = useRef<string | null>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
   const debounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Scan directory function
-  const scanDirectory = useCallback(async (scanPath: string) => {
-    // Cancel any in-flight request
+  const scanDirectory = useCallback(async (source: ScanSource) => {
     if (abortControllerRef.current) {
       abortControllerRef.current.abort();
     }
 
-    // Create a new abort controller for this request
     const controller = new AbortController();
     abortControllerRef.current = controller;
 
+    const key = scanSourceKey(source);
+
     try {
       const response = await requestAPI<IScanResponse>(
-        `scan?path=${encodeURIComponent(scanPath)}`,
-        {
-          method: 'GET',
-          signal: controller.signal
-        }
+        buildScanEndpoint(source),
+        buildScanInit(source, { signal: controller.signal })
       );
 
-      // Check if this is still the current path
-      if (scanPath !== currentPathRef.current) {
+      if (key !== currentSourceKeyRef.current) {
         return;
       }
 
@@ -129,22 +117,18 @@ export function ProjspecPanelComponent({
         });
       }
     } catch (err: unknown) {
-      // Check if this is still the current path
-      if (scanPath !== currentPathRef.current) {
+      if (key !== currentSourceKeyRef.current) {
         return;
       }
 
-      // Ignore abort errors
       if (err instanceof Error && err.name === 'AbortError') {
         return;
       }
 
-      // Extract error message
       let message = 'Unknown error occurred';
       if (err instanceof Error) {
         message = err.message;
 
-        // Try to parse error details from the response
         const match = message.match(/API request failed \(\d+\): (.+)/);
         if (match) {
           try {
@@ -166,24 +150,25 @@ export function ProjspecPanelComponent({
     }
   }, []);
 
-  // Effect to handle path changes with debouncing
-  useEffect(() => {
-    currentPathRef.current = path;
+  const sourceKey = scanSourceKey(scanSource);
 
-    // Show loading state immediately
+  useEffect(() => {
+    if (scanSource === null) {
+      return;
+    }
+
+    currentSourceKeyRef.current = sourceKey;
     setState(prev => ({ ...prev, loading: true }));
 
-    // Clear any existing debounce timer
     if (debounceTimerRef.current) {
       clearTimeout(debounceTimerRef.current);
     }
 
-    // Debounce the scan request
+    const source = scanSource;
     debounceTimerRef.current = setTimeout(() => {
-      scanDirectory(path);
+      scanDirectory(source);
     }, DEBOUNCE_DELAY);
 
-    // Cleanup on unmount or path change
     return () => {
       if (debounceTimerRef.current) {
         clearTimeout(debounceTimerRef.current);
@@ -192,12 +177,23 @@ export function ProjspecPanelComponent({
         abortControllerRef.current.abort();
       }
     };
-  }, [path, scanDirectory]);
+  }, [sourceKey, scanDirectory]);
+
+  if (scanSource === null) {
+    return (
+      <div className="jp-projspec-panel-content">
+        <div className="jp-projspec-header">Project Spec</div>
+        <div className="jp-projspec-empty-state">
+          Open a file browser to see project specs.
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="jp-projspec-panel-content">
       <div className="jp-projspec-header">Project Spec</div>
-      <div className="jp-projspec-path">{formatPath(path)}</div>
+      <div className="jp-projspec-path">{formatScanSource(scanSource)}</div>
 
       {state.loading && <LoadingSpinner />}
 
@@ -206,7 +202,7 @@ export function ProjspecPanelComponent({
       {!state.loading && !state.error && state.project && (
         <ProjectView
           project={state.project}
-          path={path}
+          path={pathForMake(scanSource)}
           expandedSpecName={expandedSpecName}
           expandRequestId={expandRequestId}
         />

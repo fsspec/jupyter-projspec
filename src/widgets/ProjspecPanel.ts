@@ -1,18 +1,19 @@
 import React from 'react';
 import { ReactWidget } from '@jupyterlab/ui-components';
 import { ProjspecPanelComponent } from '../components';
+import { ScanSource, scanSourcesEqual } from '../types';
 
-/**
- * CSS class for the projspec panel widget.
- */
 const PANEL_CLASS = 'jp-projspec-Panel';
 
 /**
- * A widget that displays projspec information for the current directory.
- * Uses React for rendering via ReactWidget.
+ * Right-sidebar widget that displays projspec information for the currently
+ * active file browser directory (local or jupyter-fs).
+ *
+ * Starts with no scan source (null); the plugin sets the real source after
+ * the app layout is restored.
  */
 export class ProjspecPanel extends ReactWidget {
-  private _currentPath: string;
+  private _scanSource: ScanSource | null;
   private _expandedSpecName: string | null;
   private _expandRequestId: number;
 
@@ -22,48 +23,39 @@ export class ProjspecPanel extends ReactWidget {
     this.id = 'projspec-panel';
     this.title.caption = 'Project Spec';
     this.title.closable = true;
-    this._currentPath = '';
+    this._scanSource = null;
     this._expandedSpecName = null;
     this._expandRequestId = 0;
   }
 
-  /**
-   * Get the current path being displayed.
-   */
-  get currentPath(): string {
-    return this._currentPath;
+  get scanSource(): ScanSource | null {
+    return this._scanSource;
   }
 
   /**
-   * Update the displayed path and trigger a re-render.
-   * @param path - The new path to scan.
+   * Set the scan source and trigger a re-render.
+   * No-ops when the new source is value-equal to the current one.
    */
-  updatePath(path: string): void {
-    if (this._currentPath !== path) {
-      this._currentPath = path;
-      // Clear expanded spec when path changes
+  updateSource(source: ScanSource): void {
+    if (!scanSourcesEqual(this._scanSource, source)) {
+      this._scanSource = source;
       this._expandedSpecName = null;
       this.update();
     }
   }
 
   /**
-   * Expand a specific spec by name and trigger a re-render.
-   * @param specName - The spec name to expand (e.g., 'python_library').
+   * Expand a specific spec by name (e.g. 'python_library').
    */
   expandSpec(specName: string): void {
     this._expandedSpecName = specName;
-    // Increment request ID to ensure expansion triggers even if same spec is clicked
     this._expandRequestId++;
     this.update();
   }
 
-  /**
-   * Render the React component.
-   */
   render(): React.ReactElement {
     return React.createElement(ProjspecPanelComponent, {
-      path: this._currentPath,
+      scanSource: this._scanSource,
       expandedSpecName: this._expandedSpecName,
       expandRequestId: this._expandRequestId
     });

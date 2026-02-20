@@ -10,8 +10,8 @@ import { getSpecInfo, getTextColorForBackground } from '../specInfo';
 interface ISpecItemProps {
   name: string;
   spec: ISpec;
-  /** Relative path from server root for the project. */
-  path: string;
+  /** Relative path from server root for the project, or null if make is unavailable. */
+  path: string | null;
   defaultExpanded?: boolean;
   /** When true, forces this spec to expand (triggered by chip click). */
   forceExpanded?: boolean;
