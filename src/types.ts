@@ -148,19 +148,23 @@ export function buildScanEndpoint(source: ScanSource): string {
  * Build the RequestInit options for a scan request.
  * Local scans use GET; jfs scans use POST with URL in the body
  * to avoid leaking credentials in query strings / server logs.
+ *
+ * Only `signal` is extracted from `extra` to prevent accidental
+ * overwrites of method, headers, or body.
  */
 export function buildScanInit(
   source: ScanSource,
-  extra?: RequestInit
+  extra?: { signal?: AbortSignal }
 ): RequestInit {
+  const signal = extra?.signal;
   if (source.type === 'local') {
-    return { method: 'GET', ...extra };
+    return { method: 'GET', signal };
   }
   return {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ url: source.url, subpath: source.subpath }),
-    ...extra
+    signal
   };
 }
 

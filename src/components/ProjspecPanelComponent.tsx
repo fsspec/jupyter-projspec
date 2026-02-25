@@ -54,7 +54,7 @@ function pathForMake(source: ScanSource): string | null {
 /**
  * Main panel component that renders projspec data.
  * Supports local paths and jupyter-fs URLs via the ScanSource prop.
- * When scanSource is null the panel shows a spinner without issuing a scan.
+ * When scanSource is null the panel shows an empty state without issuing a scan.
  */
 export function ProjspecPanelComponent({
   scanSource,

@@ -104,6 +104,12 @@ export async function fetchJfsResources(): Promise<Map<string, string> | null> {
   }
 
   if (!response.ok) {
+    if (response.status !== 404) {
+      console.warn(
+        `jupyter-projspec: jupyter-fs /resources returned ${response.status}. ` +
+          'jupyter-fs may be misconfigured.'
+      );
+    }
     return null;
   }
 

@@ -116,6 +116,9 @@ const plugin: JupyterFrontEndPlugin<IProjspecPanelProvider> = {
         const subpath = sidebarEl ? readBreadcrumbPath(sidebarEl) : '';
         panel.updateSource({ type: 'jfs', url, subpath });
       }
+      // For unrecognised sidebars (TOC, git, extensions, etc.) we
+      // intentionally keep the panel showing the last file browser's
+      // specs — there is nothing to scan for those tabs.
     };
 
     labShell.layoutModified.connect(() => doSyncPanelToActiveTab());
@@ -241,17 +244,6 @@ const jupyterFsPlugin: JupyterFrontEndPlugin<void> = {
         .querySelectorAll('.jp-tree-finder-sidebar')
         .forEach(el => injectChips(el, idToUrl));
 
-      if (sidebarIdToUrl.size < idToUrl.size) {
-        const unmatched = [...idToUrl.keys()].filter(
-          id => !sidebarIdToUrl.has(id)
-        );
-        console.warn(
-          `jupyter-projspec: ${unmatched.length} jupyter-fs sidebar(s) not found in DOM. ` +
-            `Expected IDs: ${unmatched.join(', ')}. ` +
-            'The sidebar ID formula may have changed in jupyter-fs.'
-        );
-      }
-
       syncPanelToActiveTab(true);
 
       const target = document.getElementById('jp-left-stack');
@@ -276,6 +268,16 @@ const jupyterFsPlugin: JupyterFrontEndPlugin<void> = {
 
       const observerTimeout = setTimeout(() => {
         observer.disconnect();
+        if (sidebarIdToUrl.size < idToUrl.size) {
+          const unmatched = [...idToUrl.keys()].filter(
+            id => !sidebarIdToUrl.has(id)
+          );
+          console.warn(
+            `jupyter-projspec: ${unmatched.length} jupyter-fs sidebar(s) not found in DOM. ` +
+              `Expected IDs: ${unmatched.join(', ')}. ` +
+              'The sidebar ID formula may have changed in jupyter-fs.'
+          );
+        }
       }, 30_000);
     });
   }

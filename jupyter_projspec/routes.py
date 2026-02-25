@@ -511,7 +511,12 @@ class ScanRouteHandler(APIHandler):
 
 
 def _scan_url(fsspec_url):
-    """Run projspec.Project() in a worker thread (blocking I/O safe)."""
+    """Run projspec.Project() in a worker thread (blocking I/O safe).
+
+    Uses the shared _executor. This does not compete with make commands
+    because make is only available for local paths (the UI disables make
+    buttons for jfs sources), so there is no thread-pool starvation risk.
+    """
     project = projspec.Project(fsspec_url)
     return project.to_dict()
 
@@ -569,6 +574,13 @@ class ScanUrlRouteHandler(APIHandler):
             return
 
         if subpath:
+            subpath = urllib.parse.unquote(subpath)
+            if "\x00" in subpath:
+                self.set_status(400)
+                self.finish(json.dumps({
+                    "error": "Invalid subpath: null bytes not allowed"
+                }))
+                return
             subpath = subpath.replace("\\", "/")
             normalized = posixpath.normpath(subpath.strip("/"))
             if normalized == ".." or normalized.startswith("../"):
@@ -630,14 +642,30 @@ def _get_jfs_resource_urls(contents_manager):
     return urls
 
 
+def _normalize_url(url):
+    """Produce a canonical form for URL comparison.
+
+    Lowercases the scheme, percent-decodes the path, resolves dot segments,
+    and strips trailing slashes. This prevents bypasses via encoding tricks
+    or case differences (e.g., OSFS vs osfs, %6D vs m).
+    """
+    parsed = urllib.parse.urlparse(url)
+    scheme = parsed.scheme.lower()
+    netloc = parsed.netloc.lower()
+    path = posixpath.normpath(urllib.parse.unquote(parsed.path)).rstrip("/")
+    return urllib.parse.urlunparse((scheme, netloc, path, "", "", ""))
+
+
 def _is_url_allowed(url, allowed_urls):
     """Check if a URL matches one of the allowed jupyter-fs resource URLs.
 
-    Performs exact match after stripping trailing slashes.
+    Both the submitted URL and each allowed URL are normalized to a canonical
+    form (lowercase scheme/host, percent-decoded path, dot segments resolved)
+    before comparison, preventing bypasses via encoding or casing differences.
     """
-    normalized = url.rstrip("/")
+    normalized = _normalize_url(url)
     for allowed in allowed_urls:
-        if normalized == allowed.rstrip("/"):
+        if normalized == _normalize_url(allowed):
             return True
     return False
 

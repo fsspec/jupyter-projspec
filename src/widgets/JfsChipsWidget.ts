@@ -22,7 +22,7 @@ export function readBreadcrumbPath(sidebar: Element): string {
   if (!crumbs) {
     return '';
   }
-  const raw = crumbs.textContent ?? '';
+  const raw = (crumbs.textContent ?? '').trim();
   // Normalize: strip leading slash, trim
   return raw.replace(/^\/+/, '').replace(/\/+$/, '');
 }

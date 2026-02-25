@@ -1,6 +1,11 @@
 import React, { useEffect, useState, useRef, useCallback } from 'react';
 import { requestAPI } from '../request';
-import { IScanResponse } from '../types';
+import {
+  IScanResponse,
+  ScanSource,
+  buildScanEndpoint,
+  buildScanInit
+} from '../types';
 import { getSpecInfo, getTextColorForBackground } from '../specInfo';
 
 /**
@@ -54,20 +59,14 @@ export function ProjspecChips({
       setError(false);
 
       try {
-        const endpoint = scanUrl
-          ? 'scan-url'
-          : `scan?path=${encodeURIComponent(scanPath)}`;
+        const source: ScanSource = scanUrl
+          ? { type: 'jfs', url: scanUrl, subpath: scanPath }
+          : { type: 'local', path: scanPath };
 
-        const init: RequestInit = scanUrl
-          ? {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ url: scanUrl, subpath: scanPath }),
-              signal: controller.signal
-            }
-          : { method: 'GET', signal: controller.signal };
-
-        const response = await requestAPI<IScanResponse>(endpoint, init);
+        const response = await requestAPI<IScanResponse>(
+          buildScanEndpoint(source),
+          buildScanInit(source, { signal: controller.signal })
+        );
 
         if (response?.project?.specs) {
           setSpecs(Object.keys(response.project.specs));
