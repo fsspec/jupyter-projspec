@@ -1053,6 +1053,33 @@ class TestScanUrlValidation:
 
     @patch("jupyter_projspec.routes._get_jfs_resource_urls",
            return_value=["osfs:///allowed"])
+    async def test_double_encoded_traversal_blocked(self, _mock_jfs, jp_fetch):
+        """Double-encoded traversal (%252E%252E) must be caught.
+
+        Without the fix (unquote before check), %252E%252E would decode to
+        %2E%2E on the first pass — bypassing the '../' check — then to '..'
+        on the second decode in _pyfs_url_to_fsspec. With the fix, no unquote
+        is applied before the check, so the raw %252E%252E string is normalised
+        to itself and rejected because normpath of a relative path containing
+        %2E-style segments does NOT produce '..'.
+        """
+        with pytest.raises(Exception) as exc_info:
+            await jp_fetch(
+                "jupyter-projspec", "scan-url",
+                method="POST",
+                body=json.dumps({
+                    "url": "osfs:///allowed",
+                    "subpath": "%252E%252E/%252E%252E/etc/passwd",
+                }).encode(),
+            )
+        # Must not be 500 (no crash) and must not reach the scan step
+        # (would be caught earlier as a non-existent path or similar error).
+        # The critical assertion: a double-encoded payload must never produce
+        # a successful 200 response by escaping the configured resource root.
+        assert exc_info.value.response.code != 200
+
+    @patch("jupyter_projspec.routes._get_jfs_resource_urls",
+           return_value=["osfs:///allowed"])
     async def test_subpath_dot_returns_400(self, _mock_jfs, jp_fetch):
         """A subpath that normalises to '.' (e.g. 'foo/..') should return 400."""
         with pytest.raises(Exception) as exc_info:

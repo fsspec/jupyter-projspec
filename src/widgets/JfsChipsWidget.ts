@@ -74,6 +74,10 @@ export class JfsChipsWidget extends ReactWidget {
       // we pick up the new element on the next mutation.
       if (this._crumbsEl && !this._crumbsEl.isConnected) {
         this._crumbsEl = null;
+        // disconnect() before observe() — MutationObserver.observe() *adds*
+        // targets rather than replacing them, so without disconnect() the
+        // observer would permanently accumulate detached node references.
+        this._observer?.disconnect();
         this._observer?.observe(this._sidebar, {
           childList: true,
           subtree: true
@@ -86,6 +90,7 @@ export class JfsChipsWidget extends ReactWidget {
         const crumbs = this._sidebar.querySelector('.tf-panel-breadcrumbs');
         if (crumbs) {
           this._crumbsEl = crumbs;
+          this._observer?.disconnect();
           this._observer?.observe(crumbs, {
             childList: true,
             subtree: true,

@@ -605,7 +605,11 @@ class ScanUrlRouteHandler(APIHandler):
             return
 
         if subpath:
-            subpath = urllib.parse.unquote(subpath)
+            # Do NOT urllib.parse.unquote here — JSON bodies are not URL-encoded
+            # by the HTTP transport. Unquoting would enable a double-decode
+            # traversal bypass: %252E%252E → %2E%2E (passes check) →
+            # ../  (second decode in _pyfs_url_to_fsspec). It would also corrupt
+            # folder names that legitimately contain a literal '%' character.
             if "\x00" in subpath:
                 self.set_status(400)
                 self.finish(json.dumps({
