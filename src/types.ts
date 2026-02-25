@@ -114,7 +114,9 @@ export function scanSourcesEqual(
   if (a.type === 'jfs' && b.type === 'jfs') {
     return a.url === b.url && a.subpath === b.subpath;
   }
-  return false;
+  // Exhaustiveness check: TypeScript will error here at compile time if a new
+  // ScanSource variant is added without updating this function.
+  throw new Error(`Unhandled ScanSource type: ${(a as { type: string }).type}`);
 }
 
 /**

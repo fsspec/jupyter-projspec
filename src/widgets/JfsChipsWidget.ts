@@ -41,7 +41,8 @@ export class JfsChipsWidget extends ReactWidget {
   private _onNavigate: ((subpath: string) => void) | null;
   private _observer: MutationObserver | null = null;
   private _sidebar: Element | null = null;
-  private _boundToCrumbs = false;
+  /** The specific breadcrumb element we are watching, if found. */
+  private _crumbsEl: Element | null = null;
 
   /**
    * @param scanUrl - The fsspec URL for this jupyter-fs resource.
@@ -67,23 +68,32 @@ export class JfsChipsWidget extends ReactWidget {
       if (!this._sidebar) {
         return;
       }
-      const crumbs = this._sidebar.querySelector('.tf-panel-breadcrumbs');
-      if (!crumbs) {
-        return;
-      }
-      if (!this._boundToCrumbs) {
-        this._boundToCrumbs = true;
-        const obs = this._observer;
-        if (!obs) {
-          return;
-        }
-        obs.disconnect();
-        obs.observe(crumbs, {
+
+      // If the breadcrumb element we narrowed to has been detached from the
+      // DOM (tree-finder remounted it), reset and re-scan from the sidebar so
+      // we pick up the new element on the next mutation.
+      if (this._crumbsEl && !this._crumbsEl.isConnected) {
+        this._crumbsEl = null;
+        this._observer?.observe(this._sidebar, {
           childList: true,
-          subtree: true,
-          characterData: true
+          subtree: true
         });
       }
+
+      // Narrow observation to the breadcrumbs element once it appears, so we
+      // also catch character-data mutations (text changes within the element).
+      if (!this._crumbsEl) {
+        const crumbs = this._sidebar.querySelector('.tf-panel-breadcrumbs');
+        if (crumbs) {
+          this._crumbsEl = crumbs;
+          this._observer?.observe(crumbs, {
+            childList: true,
+            subtree: true,
+            characterData: true
+          });
+        }
+      }
+
       const newPath = readBreadcrumbPath(this._sidebar);
       if (newPath !== this._subpath) {
         this._subpath = newPath;
@@ -92,9 +102,11 @@ export class JfsChipsWidget extends ReactWidget {
       }
     });
 
+    // Start watching the full sidebar. If breadcrumbs are already present,
+    // immediately narrow to them as well for character-data coverage.
     const crumbs = sidebar.querySelector('.tf-panel-breadcrumbs');
     if (crumbs) {
-      this._boundToCrumbs = true;
+      this._crumbsEl = crumbs;
       this._observer.observe(crumbs, {
         childList: true,
         subtree: true,

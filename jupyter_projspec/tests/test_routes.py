@@ -643,6 +643,11 @@ class TestNormalizeUrl:
         from jupyter_projspec.routes import _normalize_url
         assert _normalize_url("s3://bucket") == _normalize_url("s3://bucket/")
 
+    def test_netloc_percent_decoded(self):
+        """Percent-encoded characters in netloc must be decoded for comparison."""
+        from jupyter_projspec.routes import _normalize_url
+        assert _normalize_url("s3://My%42ucket/path") == _normalize_url("s3://mybucket/path")
+
     def test_query_params_stripped(self):
         """Query parameters must be excluded from the canonical form."""
         from jupyter_projspec.routes import _normalize_url
@@ -709,6 +714,16 @@ class TestPyfsUrlToFsspec:
         from jupyter_projspec.routes import _pyfs_url_to_fsspec
         assert _pyfs_url_to_fsspec("osfs:///tmp/foo") == "/tmp/foo"
 
+    def test_osfs_url_decoded(self):
+        """Percent-encoded characters in osfs:// paths must be decoded."""
+        from jupyter_projspec.routes import _pyfs_url_to_fsspec
+        assert _pyfs_url_to_fsspec("osfs:///tmp/My%20Project") == "/tmp/My Project"
+
+    def test_osfs_windows_drive_url_decoded(self):
+        """Percent-encoded Windows drive paths must be decoded."""
+        from jupyter_projspec.routes import _pyfs_url_to_fsspec
+        assert _pyfs_url_to_fsspec("osfs://C:/My%20Docs") == "C:/My Docs"
+
     def test_osfs_no_leading_slash_normalised(self):
         from jupyter_projspec.routes import _pyfs_url_to_fsspec
         # osfs://tmp/foo has 'tmp' as netloc (a hostname), which is not supported
@@ -752,6 +767,93 @@ class TestPyfsUrlToFsspec:
 
 
 # ---------------------------------------------------------------------------
+# Unit tests for _get_jfs_resource_urls
+# ---------------------------------------------------------------------------
+
+class TestGetJfsResourceUrls:
+    """Unit tests for the jupyter-fs MetaManager resource URL extractor."""
+
+    def test_no_resources_attr_returns_none(self):
+        """Contents manager without _resources or resources → None (no jfs)."""
+        from jupyter_projspec.routes import _get_jfs_resource_urls
+
+        class PlainCM:
+            pass
+
+        assert _get_jfs_resource_urls(PlainCM()) is None
+
+    def test_none_resources_attr_returns_none(self):
+        """resources=None explicitly → None."""
+        from jupyter_projspec.routes import _get_jfs_resource_urls
+
+        class CM:
+            resources = None
+
+        assert _get_jfs_resource_urls(CM()) is None
+
+    def test_dict_style_resources(self):
+        """Resources as a list of dicts with 'url' keys."""
+        from jupyter_projspec.routes import _get_jfs_resource_urls
+
+        class CM:
+            _resources = [{"url": "s3://bucket"}, {"url": "osfs:///tmp"}]
+
+        assert _get_jfs_resource_urls(CM()) == ["s3://bucket", "osfs:///tmp"]
+
+    def test_object_style_resources(self):
+        """Resources as objects with a .url attribute."""
+        from jupyter_projspec.routes import _get_jfs_resource_urls
+
+        class Res:
+            def __init__(self, url):
+                self.url = url
+
+        class CM:
+            resources = [Res("s3://bucket"), Res("osfs:///tmp")]
+
+        assert _get_jfs_resource_urls(CM()) == ["s3://bucket", "osfs:///tmp"]
+
+    def test_private_attr_takes_precedence(self):
+        """_resources is checked before the public resources attribute."""
+        from jupyter_projspec.routes import _get_jfs_resource_urls
+
+        class CM:
+            _resources = [{"url": "s3://private"}]
+            resources = [{"url": "s3://public"}]
+
+        assert _get_jfs_resource_urls(CM()) == ["s3://private"]
+
+    def test_falls_back_to_public_attr(self):
+        """When _resources is absent, falls back to resources."""
+        from jupyter_projspec.routes import _get_jfs_resource_urls
+
+        class CM:
+            resources = [{"url": "s3://public"}]
+
+        assert _get_jfs_resource_urls(CM()) == ["s3://public"]
+
+    def test_missing_url_field_skipped(self):
+        """Resources without a 'url' field are silently skipped."""
+        from jupyter_projspec.routes import _get_jfs_resource_urls
+
+        class CM:
+            _resources = [{"url": "s3://ok"}, {"name": "no-url"}, {}]
+
+        assert _get_jfs_resource_urls(CM()) == ["s3://ok"]
+
+    def test_empty_resources_returns_empty_list(self):
+        """Empty resource list returns [] (not None — jfs is active but unconfigured)."""
+        from jupyter_projspec.routes import _get_jfs_resource_urls
+
+        class CM:
+            _resources = []
+
+        result = _get_jfs_resource_urls(CM())
+        assert result == []
+        assert result is not None
+
+
+# ---------------------------------------------------------------------------
 # Unit tests for _redact_url_credentials
 # ---------------------------------------------------------------------------
 
@@ -763,6 +865,21 @@ class TestRedactUrlCredentials:
         result = _redact_url_credentials("s3://key:secret@bucket/path")
         assert "secret" not in result
         assert "key" in result
+        assert "***" in result
+
+    def test_redacts_password_only_url(self):
+        """ftp://:secret@host — no username, only password."""
+        from jupyter_projspec.routes import _redact_url_credentials
+        result = _redact_url_credentials("ftp://:secret@host/path")
+        assert "secret" not in result
+        assert "***" in result
+
+    def test_redacts_password_containing_colon(self):
+        """s3://user:p:ass@host — password itself contains ':'."""
+        from jupyter_projspec.routes import _redact_url_credentials
+        result = _redact_url_credentials("s3://user:p:ass@host/bucket")
+        assert "p:ass" not in result
+        assert "user" in result
         assert "***" in result
 
     def test_no_credentials_unchanged(self):
@@ -872,6 +989,37 @@ class TestScanUrlValidation:
         payload = json.loads(exc_info.value.response.body)
         assert "MetaManager" in payload["error"]
 
+    @patch("jupyter_projspec.routes._get_jfs_resource_urls", return_value=[])
+    async def test_empty_resources_returns_422(self, _mock_jfs, jp_fetch):
+        """MetaManager active but zero resources configured must return 422
+        with a descriptive message, not a generic 403."""
+        with pytest.raises(Exception) as exc_info:
+            await jp_fetch(
+                "jupyter-projspec", "scan-url",
+                method="POST",
+                body=json.dumps({"url": "osfs:///anything"}).encode(),
+            )
+        assert exc_info.value.response.code == 422
+        payload = json.loads(exc_info.value.response.body)
+        assert "No jupyter-fs resources" in payload["error"]
+
+    @patch("jupyter_projspec.routes._get_jfs_resource_urls",
+           return_value=["osfs:///tmp"])
+    @patch("jupyter_projspec.routes._scan_url")
+    async def test_successful_scan(self, mock_scan, _mock_jfs, jp_fetch):
+        """A valid URL matching the allowlist must return 200 with project data."""
+        mock_scan.return_value = {"name": "demo", "specs": {}}
+        response = await jp_fetch(
+            "jupyter-projspec", "scan-url",
+            method="POST",
+            body=json.dumps({"url": "osfs:///tmp"}).encode(),
+        )
+        assert response.code == 200
+        payload = json.loads(response.body)
+        assert payload["project"] == {"name": "demo", "specs": {}}
+        # Confirm the scan was called with the fsspec URL (decoded osfs path)
+        mock_scan.assert_called_once_with("/tmp")
+
     @patch("jupyter_projspec.routes._get_jfs_resource_urls",
            return_value=["osfs:///allowed"])
     async def test_disallowed_url_returns_403(self, _mock_jfs, jp_fetch):
@@ -902,6 +1050,49 @@ class TestScanUrlValidation:
         assert exc_info.value.response.code == 400
         payload = json.loads(exc_info.value.response.body)
         assert "traversal" in payload["error"]
+
+    @patch("jupyter_projspec.routes._get_jfs_resource_urls",
+           return_value=["osfs:///allowed"])
+    async def test_subpath_dot_returns_400(self, _mock_jfs, jp_fetch):
+        """A subpath that normalises to '.' (e.g. 'foo/..') should return 400."""
+        with pytest.raises(Exception) as exc_info:
+            await jp_fetch(
+                "jupyter-projspec", "scan-url",
+                method="POST",
+                body=json.dumps({
+                    "url": "osfs:///allowed",
+                    "subpath": "foo/..",
+                }).encode(),
+            )
+        assert exc_info.value.response.code == 400
+        payload = json.loads(exc_info.value.response.body)
+        assert "traversal" in payload["error"]
+
+    @patch("jupyter_projspec.routes._get_jfs_resource_urls",
+           return_value=["osfs:///allowed"])
+    async def test_absolute_subpath_is_safe(self, _mock_jfs, jp_fetch):
+        """A subpath with a leading slash is stripped before normalisation,
+        so '/sub/dir' becomes 'sub/dir' — a safe relative path, not a
+        traversal. It must NOT be rejected with a 400 traversal error."""
+        try:
+            await jp_fetch(
+                "jupyter-projspec", "scan-url",
+                method="POST",
+                body=json.dumps({
+                    "url": "osfs:///allowed",
+                    "subpath": "/sub/dir",
+                }).encode(),
+            )
+        except Exception as exc_info:
+            # May fail (osfs:///allowed/sub/dir doesn't exist in CI), but
+            # must not be rejected as a traversal attempt.
+            if hasattr(exc_info, "response"):
+                code = exc_info.response.code
+                if code == 400:
+                    payload = json.loads(exc_info.response.body)
+                    assert "traversal" not in payload.get("error", ""), (
+                        "Leading-slash subpath must not be rejected as traversal"
+                    )
 
     @patch("jupyter_projspec.routes._get_jfs_resource_urls",
            return_value=["osfs:///allowed"])

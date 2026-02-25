@@ -574,6 +574,14 @@ class ScanUrlRouteHandler(APIHandler):
             }))
             return
 
+        if len(allowed_urls) == 0:
+            self.set_status(422)
+            self.finish(json.dumps({
+                "error": "No jupyter-fs resources are configured. "
+                         "Add a resource in the jupyter-fs settings panel and restart."
+            }))
+            return
+
         if not _is_url_allowed(url, allowed_urls):
             self.set_status(403)
             self.finish(json.dumps({
@@ -606,7 +614,13 @@ class ScanUrlRouteHandler(APIHandler):
                 return
             subpath = subpath.replace("\\", "/")
             normalized = posixpath.normpath(subpath.strip("/"))
-            if normalized == ".." or normalized.startswith("../"):
+            # Reject traversal (../), same-dir no-ops (.), and any path that
+            # normpath somehow produced with a leading slash (absolute paths).
+            if (
+                normalized in ("..", ".")
+                or normalized.startswith("../")
+                or normalized.startswith("/")
+            ):
                 self.set_status(400)
                 self.finish(json.dumps({
                     "error": "Invalid subpath: traversal not allowed"
@@ -669,8 +683,16 @@ def _get_jfs_resource_urls(contents_manager):
 
 
 def _redact_url_credentials(url):
-    """Return url with any embedded password replaced by '***' for safe logging."""
-    return re.sub(r"(://[^:@/]+):[^@/]+@", r"\1:***@", url)
+    """Return url with any embedded user:password replaced by user:*** for safe logging.
+
+    Handles:
+    - scheme://user:password@host  →  scheme://user:***@host
+    - scheme://:password@host      →  scheme://:***@host  (password-only)
+    - scheme://user:p:ass@host     →  scheme://user:***@host  (password contains ':')
+    """
+    # [^:@/]* allows zero-or-more chars before ':' (covers password-only URLs).
+    # [^@]+ greedily matches up to the last '@', handling ':' inside passwords.
+    return re.sub(r"(://[^:@/]*):[^@]+@", r"\1:***@", url)
 
 
 def _normalize_url(url):
@@ -688,7 +710,7 @@ def _normalize_url(url):
     """
     parsed = urllib.parse.urlparse(url)
     scheme = parsed.scheme.lower()
-    netloc = parsed.netloc.lower()
+    netloc = urllib.parse.unquote(parsed.netloc).lower()
     raw_path = urllib.parse.unquote(parsed.path)
     # posixpath.normpath('') returns '.' rather than ''; normalise to '' so
     # that root-level cloud URLs (e.g. s3://bucket with no path) compare
@@ -736,14 +758,14 @@ def _pyfs_url_to_fsspec(url):
         # Python's urlparse puts a Windows drive letter in netloc:
         # urlparse('osfs://C:/path') → netloc='C:', path='/path'
         if netloc and len(netloc) == 2 and netloc[1] == ":":
-            path = netloc + parsed.path
+            path = netloc + urllib.parse.unquote(parsed.path)
             return path  # e.g. "C:/path"
         if netloc:
             raise ValueError(
                 f"osfs:// URLs with a host component are not supported: {url!r}. "
                 "Use osfs:///path (triple slash) for local paths."
             )
-        path = parsed.path
+        path = urllib.parse.unquote(parsed.path)
         return path if path.startswith("/") else "/" + path
 
     if scheme in _FSSPEC_NATIVE_SCHEMES:

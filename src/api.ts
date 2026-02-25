@@ -99,7 +99,8 @@ export async function fetchJfsResources(): Promise<Map<string, string> | null> {
   let response: Response;
   try {
     response = await ServerConnection.makeRequest(requestUrl, {}, settings);
-  } catch {
+  } catch (err) {
+    console.error('jupyter-projspec: network error fetching jupyter-fs resources:', err);
     return null;
   }
 
@@ -116,11 +117,16 @@ export async function fetchJfsResources(): Promise<Map<string, string> | null> {
   let resources: IJfsResource[];
   try {
     resources = (await response.json()) as IJfsResource[];
-  } catch {
+  } catch (err) {
+    console.error('jupyter-projspec: failed to parse jupyter-fs /resources response:', err);
     return null;
   }
 
   if (!Array.isArray(resources)) {
+    console.error(
+      'jupyter-projspec: expected array from jupyter-fs /resources, got:',
+      typeof resources
+    );
     return null;
   }
 
