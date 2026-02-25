@@ -3,6 +3,7 @@ import json
 import logging
 import os
 import posixpath
+import re
 import shlex
 import subprocess
 import threading
@@ -550,6 +551,13 @@ class ScanUrlRouteHandler(APIHandler):
         url = body.get("url", "")
         subpath = body.get("subpath", "")
 
+        if not isinstance(url, str) or not isinstance(subpath, (str, type(None))):
+            self.set_status(400)
+            self.finish(json.dumps({"error": "'url' must be a string and 'subpath' must be a string or null"}))
+            return
+
+        subpath = subpath or ""
+
         if not url:
             self.set_status(400)
             self.finish(json.dumps({"error": "Missing required 'url' parameter"}))
@@ -573,6 +581,21 @@ class ScanUrlRouteHandler(APIHandler):
             }))
             return
 
+        # Use the server-configured allowed URL (not the client-supplied one) as
+        # the base for path construction. This discards any query parameters or
+        # other components that a client might inject to manipulate filesystem
+        # behavior (e.g., fake AWS credentials via ?endpoint_url=...).
+        matched_url = next(
+            (a for a in allowed_urls if _normalize_url(url) == _normalize_url(a)),
+            None,
+        )
+        # matched_url is guaranteed non-None because _is_url_allowed returned True,
+        # but guard defensively.
+        if matched_url is None:
+            self.set_status(500)
+            self.finish(json.dumps({"error": "Internal error resolving allowed URL"}))
+            return
+
         if subpath:
             subpath = urllib.parse.unquote(subpath)
             if "\x00" in subpath:
@@ -591,10 +614,10 @@ class ScanUrlRouteHandler(APIHandler):
                 return
             subpath = normalized
 
-        parsed = urllib.parse.urlparse(url)
+        parsed = urllib.parse.urlparse(matched_url)
         base_path = parsed.path.rstrip("/")
         new_path = f"{base_path}/{subpath}" if subpath else base_path
-        full_url = urllib.parse.urlunparse(parsed._replace(path=new_path))
+        full_url = urllib.parse.urlunparse(parsed._replace(path=new_path, query="", fragment=""))
 
         try:
             fsspec_url = _pyfs_url_to_fsspec(full_url)
@@ -611,7 +634,10 @@ class ScanUrlRouteHandler(APIHandler):
             self.finish(json.dumps({"project": project_dict}))
         except Exception as e:
             logger.error(
-                "projspec error scanning URL %s: %s", fsspec_url, e, exc_info=True
+                "projspec error scanning URL %s: %s",
+                _redact_url_credentials(fsspec_url),
+                e,
+                exc_info=True,
             )
             self.set_status(500)
             self.finish(json.dumps({"error": "Error scanning URL"}))
@@ -642,17 +668,33 @@ def _get_jfs_resource_urls(contents_manager):
     return urls
 
 
+def _redact_url_credentials(url):
+    """Return url with any embedded password replaced by '***' for safe logging."""
+    return re.sub(r"(://[^:@/]+):[^@/]+@", r"\1:***@", url)
+
+
 def _normalize_url(url):
     """Produce a canonical form for URL comparison.
 
     Lowercases the scheme, percent-decodes the path, resolves dot segments,
     and strips trailing slashes. This prevents bypasses via encoding tricks
     or case differences (e.g., OSFS vs osfs, %6D vs m).
+
+    Query parameters and fragments are intentionally excluded so that
+    server-configured URLs (which never have query params) compare equal to
+    client-submitted base URLs regardless of any injected query parameters.
+    Actual URL construction uses the server-configured matched URL, not the
+    client-supplied one, so injected query params are never forwarded.
     """
     parsed = urllib.parse.urlparse(url)
     scheme = parsed.scheme.lower()
     netloc = parsed.netloc.lower()
-    path = posixpath.normpath(urllib.parse.unquote(parsed.path)).rstrip("/")
+    raw_path = urllib.parse.unquote(parsed.path)
+    # posixpath.normpath('') returns '.' rather than ''; normalise to '' so
+    # that root-level cloud URLs (e.g. s3://bucket with no path) compare
+    # equal to s3://bucket/ (path='/').
+    normed = posixpath.normpath(raw_path) if raw_path else ""
+    path = normed.rstrip("/")
     return urllib.parse.urlunparse((scheme, netloc, path, "", "", ""))
 
 
@@ -691,9 +733,11 @@ def _pyfs_url_to_fsspec(url):
 
     if scheme == "osfs":
         netloc = parsed.netloc
+        # Python's urlparse puts a Windows drive letter in netloc:
+        # urlparse('osfs://C:/path') → netloc='C:', path='/path'
         if netloc and len(netloc) == 2 and netloc[1] == ":":
             path = netloc + parsed.path
-            return path
+            return path  # e.g. "C:/path"
         if netloc:
             raise ValueError(
                 f"osfs:// URLs with a host component are not supported: {url!r}. "
