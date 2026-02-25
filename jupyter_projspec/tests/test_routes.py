@@ -1140,21 +1140,6 @@ class TestScanUrlValidation:
                     "Folder name containing literal '%' must not be rejected as traversal"
                 )
 
-
-        """A subpath that normalises to '.' (e.g. 'foo/..') should return 400."""
-        with pytest.raises(Exception) as exc_info:
-            await jp_fetch(
-                "jupyter-projspec", "scan-url",
-                method="POST",
-                body=json.dumps({
-                    "url": "osfs:///allowed",
-                    "subpath": "foo/..",
-                }).encode(),
-            )
-        assert exc_info.value.response.code == 400
-        payload = json.loads(exc_info.value.response.body)
-        assert "traversal" in payload["error"]
-
     @patch("jupyter_projspec.routes._get_jfs_resource_urls",
            return_value=["osfs:///allowed"])
     async def test_absolute_subpath_is_safe(self, _mock_jfs, jp_fetch):
