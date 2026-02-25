@@ -510,6 +510,12 @@ class ScanRouteHandler(APIHandler):
             self.finish(json.dumps({"error": "Error scanning directory"}))
 
 
+def _scan_url(fsspec_url):
+    """Run projspec.Project() in a worker thread (blocking I/O safe)."""
+    project = projspec.Project(fsspec_url)
+    return project.to_dict()
+
+
 class ScanUrlRouteHandler(APIHandler):
     """Handler for scanning an fsspec URL with projspec.
 
@@ -519,7 +525,7 @@ class ScanUrlRouteHandler(APIHandler):
     """
 
     @tornado.web.authenticated
-    def post(self):
+    async def post(self):
         """Scan an fsspec URL and return projspec project data as JSON.
 
         Request Body (JSON):
@@ -586,8 +592,10 @@ class ScanUrlRouteHandler(APIHandler):
             return
 
         try:
-            project = projspec.Project(fsspec_url)
-            project_dict = project.to_dict()
+            loop = tornado.ioloop.IOLoop.current()
+            project_dict = await loop.run_in_executor(
+                _executor, _scan_url, fsspec_url
+            )
             self.finish(json.dumps({"project": project_dict}))
         except Exception as e:
             logger.error(
