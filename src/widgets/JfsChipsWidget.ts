@@ -43,6 +43,8 @@ export class JfsChipsWidget extends ReactWidget {
   private _sidebar: Element | null = null;
   /** The specific breadcrumb element we are watching, if found. */
   private _crumbsEl: Element | null = null;
+  /** Pending re-read timer after a breadcrumb detachment. */
+  private _rereadTimer: ReturnType<typeof setTimeout> | null = null;
 
   /**
    * @param scanUrl - The fsspec URL for this jupyter-fs resource.
@@ -69,62 +71,33 @@ export class JfsChipsWidget extends ReactWidget {
         return;
       }
 
-      // If the breadcrumb element we narrowed to has been detached from the
-      // DOM (tree-finder remounted it), reset and re-scan from the sidebar so
-      // we pick up the new element on the next mutation.
       if (this._crumbsEl && !this._crumbsEl.isConnected) {
         this._crumbsEl = null;
-        // disconnect() before observe() — MutationObserver.observe() *adds*
-        // targets rather than replacing them, so without disconnect() the
-        // observer would permanently accumulate detached node references.
-        this._observer?.disconnect();
-        this._observer?.observe(this._sidebar, {
-          childList: true,
-          subtree: true
-        });
+        this._observeSidebar();
+
+        // tree-finder replaces the breadcrumb element and populates its text
+        // asynchronously — schedule a re-read so we pick up the new path once
+        // the replacement element's content has been rendered.
+        this._scheduleReread();
+        return;
       }
 
-      // Narrow observation to the breadcrumbs element once it appears, so we
-      // also catch character-data mutations (text changes within the element).
       if (!this._crumbsEl) {
-        const crumbs = this._sidebar.querySelector('.tf-panel-breadcrumbs');
-        if (crumbs) {
-          this._crumbsEl = crumbs;
-          this._observer?.disconnect();
-          this._observer?.observe(crumbs, {
-            childList: true,
-            subtree: true,
-            characterData: true
-          });
-        }
+        this._narrowToCrumbs();
       }
 
-      const newPath = readBreadcrumbPath(this._sidebar);
-      if (newPath !== this._subpath) {
-        this._subpath = newPath;
-        this._onNavigate?.(newPath);
-        this.update();
-      }
+      this._syncBreadcrumb();
     });
 
-    // Always watch the full sidebar so the detachment-recovery branch
-    // (lines 75-85) can fire even when crumbs are already in the DOM.
-    // Additionally narrow to the crumbs element if it already exists so we
-    // also catch character-data mutations (text edits inside breadcrumbs).
-    // MutationObserver.observe() *adds* targets; both are active simultaneously.
-    this._observer.observe(sidebar, { childList: true, subtree: true });
-    const crumbs = sidebar.querySelector('.tf-panel-breadcrumbs');
-    if (crumbs) {
-      this._crumbsEl = crumbs;
-      this._observer.observe(crumbs, {
-        childList: true,
-        subtree: true,
-        characterData: true
-      });
-    }
+    this._observeSidebar();
+    this._narrowToCrumbs();
   }
 
   dispose(): void {
+    if (this._rereadTimer !== null) {
+      clearTimeout(this._rereadTimer);
+      this._rereadTimer = null;
+    }
     if (this._observer) {
       this._observer.disconnect();
       this._observer = null;
@@ -132,6 +105,72 @@ export class JfsChipsWidget extends ReactWidget {
     this._sidebar = null;
     this._onNavigate = null;
     super.dispose();
+  }
+
+  /**
+   * Start observing the full sidebar for structural changes (childList).
+   * This ensures we detect when tree-finder replaces the breadcrumb element.
+   */
+  private _observeSidebar(): void {
+    this._observer?.disconnect();
+    if (this._sidebar) {
+      this._observer?.observe(this._sidebar, {
+        childList: true,
+        subtree: true
+      });
+    }
+  }
+
+  /**
+   * Additionally observe the breadcrumb element for text changes.
+   * MutationObserver.observe() *adds* targets, so the sidebar observation
+   * from _observeSidebar() remains active.
+   */
+  private _narrowToCrumbs(): void {
+    if (!this._sidebar) {
+      return;
+    }
+    const crumbs = this._sidebar.querySelector('.tf-panel-breadcrumbs');
+    if (crumbs) {
+      this._crumbsEl = crumbs;
+      this._observer?.observe(crumbs, {
+        childList: true,
+        subtree: true,
+        characterData: true
+      });
+    }
+  }
+
+  /**
+   * Schedule a deferred breadcrumb re-read.  tree-finder populates the
+   * replacement breadcrumb element asynchronously, so we wait one task
+   * before reading.
+   */
+  private _scheduleReread(): void {
+    if (this._rereadTimer !== null) {
+      clearTimeout(this._rereadTimer);
+    }
+    this._rereadTimer = setTimeout(() => {
+      this._rereadTimer = null;
+      this._narrowToCrumbs();
+      this._syncBreadcrumb();
+    }, 0);
+  }
+
+  /**
+   * Read the current breadcrumb path and update state if it has changed.
+   */
+  private _syncBreadcrumb(): void {
+    if (!this._sidebar) {
+      return;
+    }
+
+    const newPath = readBreadcrumbPath(this._sidebar);
+    if (newPath !== this._subpath) {
+      this._subpath = newPath;
+      this._onNavigate?.(newPath);
+      this.update();
+    }
   }
 
   /**
