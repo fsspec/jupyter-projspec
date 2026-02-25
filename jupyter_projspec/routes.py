@@ -605,11 +605,6 @@ class ScanUrlRouteHandler(APIHandler):
             return
 
         if subpath:
-            # Do NOT urllib.parse.unquote here — JSON bodies are not URL-encoded
-            # by the HTTP transport. Unquoting would enable a double-decode
-            # traversal bypass: %252E%252E → %2E%2E (passes check) →
-            # ../  (second decode in _pyfs_url_to_fsspec). It would also corrupt
-            # folder names that legitimately contain a literal '%' character.
             if "\x00" in subpath:
                 self.set_status(400)
                 self.finish(json.dumps({
@@ -617,20 +612,36 @@ class ScanUrlRouteHandler(APIHandler):
                 }))
                 return
             subpath = subpath.replace("\\", "/")
-            normalized = posixpath.normpath(subpath.strip("/"))
-            # Reject traversal (../), same-dir no-ops (.), and any path that
-            # normpath somehow produced with a leading slash (absolute paths).
-            if (
-                normalized in ("..", ".")
-                or normalized.startswith("../")
-                or normalized.startswith("/")
-            ):
+
+            # Two-layer traversal check.
+            #
+            # Layer 1 — raw string: catches literal "../", double-encoded
+            # "%252E%252E" (normpath does not decode percent sequences, so
+            # "%252e%252e" stays as-is and does not resolve to "..").
+            #
+            # Layer 2 — once-decoded string: catches single-encoded "%2e%2e"
+            # which would pass the raw check but is decoded by
+            # urllib.parse.unquote inside _pyfs_url_to_fsspec for osfs:// paths,
+            # yielding "../" after the fact.  We do NOT apply the decoded value
+            # as the canonical subpath here (that would corrupt folder names
+            # that legitimately contain literal '%' characters); we only use it
+            # to gate the request.
+            #
+            # Note: double-encoded "%252e%252e" is NOT caught by layer 2
+            # (one unquote gives "%2e%2e", not ".."), and _pyfs_url_to_fsspec
+            # also only unquotes once, so double-encoded sequences are safe.
+            def _has_traversal(s: str) -> bool:
+                n = posixpath.normpath(s.strip("/")) if s.strip("/") else ""
+                return n in ("..", ".") or n.startswith("../") or n.startswith("/")
+
+            if _has_traversal(subpath) or _has_traversal(urllib.parse.unquote(subpath)):
                 self.set_status(400)
                 self.finish(json.dumps({
                     "error": "Invalid subpath: traversal not allowed"
                 }))
                 return
-            subpath = normalized
+
+            subpath = posixpath.normpath(subpath.strip("/"))
 
         parsed = urllib.parse.urlparse(matched_url)
         base_path = parsed.path.rstrip("/")

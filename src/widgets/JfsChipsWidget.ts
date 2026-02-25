@@ -107,8 +107,12 @@ export class JfsChipsWidget extends ReactWidget {
       }
     });
 
-    // Start watching the full sidebar. If breadcrumbs are already present,
-    // immediately narrow to them as well for character-data coverage.
+    // Always watch the full sidebar so the detachment-recovery branch
+    // (lines 75-85) can fire even when crumbs are already in the DOM.
+    // Additionally narrow to the crumbs element if it already exists so we
+    // also catch character-data mutations (text edits inside breadcrumbs).
+    // MutationObserver.observe() *adds* targets; both are active simultaneously.
+    this._observer.observe(sidebar, { childList: true, subtree: true });
     const crumbs = sidebar.querySelector('.tf-panel-breadcrumbs');
     if (crumbs) {
       this._crumbsEl = crumbs;
@@ -117,8 +121,6 @@ export class JfsChipsWidget extends ReactWidget {
         subtree: true,
         characterData: true
       });
-    } else {
-      this._observer.observe(sidebar, { childList: true, subtree: true });
     }
   }
 

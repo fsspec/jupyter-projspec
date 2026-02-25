@@ -1080,7 +1080,67 @@ class TestScanUrlValidation:
 
     @patch("jupyter_projspec.routes._get_jfs_resource_urls",
            return_value=["osfs:///allowed"])
-    async def test_subpath_dot_returns_400(self, _mock_jfs, jp_fetch):
+    async def test_single_encoded_traversal_blocked(self, _mock_jfs, jp_fetch):
+        """Single-encoded dot segments (%2e%2e) must be caught.
+
+        The raw traversal check does not decode percent sequences, so
+        '%2e%2e' looks like an innocuous literal.  However _pyfs_url_to_fsspec
+        calls urllib.parse.unquote() on the path for osfs:// resources, turning
+        '%2e%2e/%2e%2e' into '../../' — a traversal — after the validation
+        step.  The fix adds a second check on the once-decoded form of the
+        subpath so both raw '../' and encoded '%2e%2e' are caught.
+        """
+        for payload_subpath in [
+            "%2e%2e/%2e%2e/etc/passwd",      # lowercase single-encoded
+            "%2E%2E/%2E%2E/etc/passwd",      # uppercase single-encoded
+            "sub/%2e%2e/%2e%2e/etc/passwd",  # encoded segments after a real dir
+        ]:
+            with pytest.raises(Exception) as exc_info:
+                await jp_fetch(
+                    "jupyter-projspec", "scan-url",
+                    method="POST",
+                    body=json.dumps({
+                        "url": "osfs:///allowed",
+                        "subpath": payload_subpath,
+                    }).encode(),
+                )
+            assert exc_info.value.response.code == 400, (
+                f"Expected 400 for single-encoded traversal '{payload_subpath}', "
+                f"got {exc_info.value.response.code}"
+            )
+            body = json.loads(exc_info.value.response.body)
+            assert "traversal" in body["error"]
+
+    @patch("jupyter_projspec.routes._get_jfs_resource_urls",
+           return_value=["osfs:///allowed"])
+    async def test_legitimate_percent_in_foldername_allowed(
+        self, _mock_jfs, jp_fetch
+    ):
+        """A folder name that literally contains '%' (e.g. 'foo%bar') must not
+        be mistakenly rejected as traversal.
+
+        'foo%bar' decoded is still 'foo%bar' (incomplete percent sequence, no
+        further decoding), so neither the raw nor the decoded traversal check
+        triggers.  The request may fail because the directory doesn't exist,
+        but it must NOT be rejected as traversal (400 with 'traversal' text).
+        """
+        try:
+            await jp_fetch(
+                "jupyter-projspec", "scan-url",
+                method="POST",
+                body=json.dumps({
+                    "url": "osfs:///allowed",
+                    "subpath": "foo%25bar",   # literal name with '%' (encoded as %25)
+                }).encode(),
+            )
+        except Exception as exc:
+            if hasattr(exc, "response") and exc.response.code == 400:
+                body = json.loads(exc.response.body)
+                assert "traversal" not in body.get("error", ""), (
+                    "Folder name containing literal '%' must not be rejected as traversal"
+                )
+
+
         """A subpath that normalises to '.' (e.g. 'foo/..') should return 400."""
         with pytest.raises(Exception) as exc_info:
             await jp_fetch(
