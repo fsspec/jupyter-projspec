@@ -95,6 +95,16 @@
   color: var(--jp-ui-font-color2);
 }
 
+/* Empty state when no scan source is available */
+
+.jp-projspec-empty-state {
+  padding: 24px 16px;
+  text-align: center;
+  color: var(--jp-ui-font-color2);
+  font-size: var(--jp-ui-font-size1);
+  line-height: 1.5;
+}
+
 .jp-projspec-no-specs-icon {
   font-size: 32px;
   margin-bottom: 12px;
@@ -561,32 +571,24 @@
    Projspec Chips Widget - File Browser Integration
    ========================================================================== */
 
-/**
- * Container widget injected into the file browser.
- * Positioned after breadcrumbs, before file listing.
- */
+/* Container widget injected into the file browser.
+ * Positioned after breadcrumbs, before file listing. */
 .jp-projspec-ChipsWidget {
   padding: 4px 12px 8px;
   overflow: visible;
 }
 
-/**
- * Hidden state - completely collapse when no specs detected.
- */
+/* Hidden state - completely collapse when no specs detected. */
 .jp-projspec-ChipsWidget-hidden {
   display: none !important;
 }
 
-/**
- * Hidden state for the inner content.
- */
+/* Hidden state for the inner content. */
 .jp-projspec-chips-hidden {
   display: none;
 }
 
-/**
- * Flex container for the chip buttons.
- */
+/* Flex container for the chip buttons. */
 .jp-projspec-chips {
   display: flex;
   flex-wrap: wrap;
@@ -594,11 +596,9 @@
   align-items: center;
 }
 
-/**
- * Individual chip button for a spec type.
+/* Individual chip button for a spec type.
  * Pill-shaped with emoji icon and label.
- * Colors, border-radius, and padding are set inline via React.
- */
+ * Colors, border-radius, and padding are set inline via React. */
 .jp-projspec-chip {
   display: inline-flex;
   align-items: center;
@@ -633,24 +633,18 @@
   outline-offset: 1px;
 }
 
-/**
- * Chip icon (emoji).
- */
+/* Chip icon (emoji). */
 .jp-projspec-chip-icon {
   font-size: 12px;
   line-height: 1;
 }
 
-/**
- * Chip label text.
- */
+/* Chip label text. */
 .jp-projspec-chip-label {
   font-size: 11px;
 }
 
-/**
- * Loading indicator shown while fetching specs.
- */
+/* Loading indicator shown while fetching specs. */
 .jp-projspec-chips-loading {
   font-size: 11px;
   color: var(--jp-ui-font-color2);
@@ -672,4 +666,19 @@
 
 .jp-projspec-make-button:active {
   transform: translateY(1px);
+}
+
+/* ==========================================================================
+   jupyter-fs Sidebar Integration
+   ========================================================================== */
+
+/* Container injected after .jp-tree-finder-toolbar in jupyter-fs sidebars. */
+.jp-projspec-jfs-chips-container {
+  padding: 4px 12px;
+}
+
+/* JfsChipsWidget inside a jupyter-fs sidebar.
+ * Reuses the same chip styles as the default file browser widget. */
+.jp-projspec-JfsChipsWidget {
+  overflow: visible;
 }

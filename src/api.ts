@@ -1,4 +1,5 @@
 import { ServerConnection } from '@jupyterlab/services';
+import { URLExt } from '@jupyterlab/coreutils';
 import { requestAPI } from './request';
 
 /**
@@ -64,4 +65,76 @@ export async function make(request: IMakeRequest): Promise<IMakeResponse> {
     const msg = err instanceof Error ? err.message : 'Unknown error';
     throw new Error(`Make request failed: ${msg}`);
   }
+}
+
+/**
+ * A single jupyter-fs resource entry returned by `GET /jupyterfs/resources`.
+ */
+export interface IJfsResource {
+  url: string;
+  drive: string;
+  name: string;
+  [key: string]: unknown;
+}
+
+/**
+ * Compute a sidebar widget ID using the same formula as jupyter-fs's
+ * `idFromResource`: `<name_without_spaces>_<drive>`.
+ */
+function jfsSidebarId(resource: IJfsResource): string {
+  return resource.name.split(' ').join('') + '_' + resource.drive;
+}
+
+/**
+ * Fetch the list of configured jupyter-fs resources from the server.
+ *
+ * @returns A map of sidebar widget ID to resource URL, or null if
+ *   jupyter-fs is not available. The sidebar ID is computed using the
+ *   same formula as jupyter-fs (`<name_without_spaces>_<drive>`).
+ */
+export async function fetchJfsResources(): Promise<Map<string, string> | null> {
+  const settings = ServerConnection.makeSettings();
+  const requestUrl = URLExt.join(settings.baseUrl, 'jupyterfs', 'resources');
+
+  let response: Response;
+  try {
+    response = await ServerConnection.makeRequest(requestUrl, {}, settings);
+  } catch (err) {
+    console.error('jupyter-projspec: network error fetching jupyter-fs resources:', err);
+    return null;
+  }
+
+  if (!response.ok) {
+    if (response.status !== 404) {
+      console.warn(
+        `jupyter-projspec: jupyter-fs /resources returned ${response.status}. ` +
+          'jupyter-fs may be misconfigured.'
+      );
+    }
+    return null;
+  }
+
+  let resources: IJfsResource[];
+  try {
+    resources = (await response.json()) as IJfsResource[];
+  } catch (err) {
+    console.error('jupyter-projspec: failed to parse jupyter-fs /resources response:', err);
+    return null;
+  }
+
+  if (!Array.isArray(resources)) {
+    console.error(
+      'jupyter-projspec: expected array from jupyter-fs /resources, got:',
+      typeof resources
+    );
+    return null;
+  }
+
+  const idToUrl = new Map<string, string>();
+  for (const resource of resources) {
+    if (resource.drive && resource.url && resource.name) {
+      idToUrl.set(jfsSidebarId(resource), resource.url);
+    }
+  }
+  return idToUrl;
 }

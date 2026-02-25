@@ -72,3 +72,114 @@ export interface IScanResponse {
   project?: IProject;
   error?: string;
 }
+
+/**
+ * Scan source for a local directory (default file browser).
+ */
+export interface ILocalScanSource {
+  type: 'local';
+  path: string;
+}
+
+/**
+ * Scan source for a jupyter-fs resource (fsspec URL).
+ */
+export interface IJfsScanSource {
+  type: 'jfs';
+  url: string;
+  subpath: string;
+}
+
+/**
+ * Discriminated union: local file browser path or jupyter-fs resource URL.
+ */
+export type ScanSource = ILocalScanSource | IJfsScanSource;
+
+/**
+ * Value-compare two scan sources, treating null as equal only to itself.
+ */
+export function scanSourcesEqual(
+  a: ScanSource | null,
+  b: ScanSource | null
+): boolean {
+  if (a === null || b === null) {
+    return a === b;
+  }
+  if (a.type !== b.type) {
+    return false;
+  }
+  if (a.type === 'local' && b.type === 'local') {
+    return a.path === b.path;
+  }
+  if (a.type === 'jfs' && b.type === 'jfs') {
+    return a.url === b.url && a.subpath === b.subpath;
+  }
+  // Exhaustiveness check: TypeScript will error here at compile time if a new
+  // ScanSource variant is added without updating this function.
+  throw new Error(`Unhandled ScanSource type: ${(a as { type: string }).type}`);
+}
+
+/**
+ * Human-readable label for a scan source (empty string for null).
+ */
+export function formatScanSource(source: ScanSource | null): string {
+  if (source === null) {
+    return '';
+  }
+  if (source.type === 'local') {
+    return source.path === '' || source.path === '/' ? '/ (root)' : source.path;
+  }
+  const base = source.url;
+  if (!source.subpath) {
+    return base;
+  }
+  return `${base.replace(/\/+$/, '')}/${source.subpath}`;
+}
+
+/**
+ * Build the REST endpoint path for a scan request.
+ */
+export function buildScanEndpoint(source: ScanSource): string {
+  if (source.type === 'local') {
+    return `scan?path=${encodeURIComponent(source.path)}`;
+  }
+  return 'scan-url';
+}
+
+/**
+ * Build the RequestInit options for a scan request.
+ * Local scans use GET; jfs scans use POST with URL in the body
+ * to avoid leaking credentials in query strings / server logs.
+ *
+ * Only `signal` is extracted from `extra` to prevent accidental
+ * overwrites of method, headers, or body.
+ */
+export function buildScanInit(
+  source: ScanSource,
+  extra?: { signal?: AbortSignal }
+): RequestInit {
+  const signal = extra?.signal;
+  if (source.type === 'local') {
+    return { method: 'GET', signal };
+  }
+  return {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ url: source.url, subpath: source.subpath }),
+    signal
+  };
+}
+
+/**
+ * Stable string key for a scan source (null when source is null).
+ * Used to detect stale responses and as a React effect dependency.
+ */
+export function scanSourceKey(source: ScanSource | null): string | null {
+  if (source === null) {
+    return null;
+  }
+  if (source.type === 'local') {
+    return `local:${source.path}`;
+  }
+  return `jfs:${source.url}:${source.subpath}`;
+}

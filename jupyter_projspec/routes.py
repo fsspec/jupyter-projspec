@@ -2,9 +2,12 @@ import atexit
 import json
 import logging
 import os
+import posixpath
+import re
 import shlex
 import subprocess
 import threading
+import urllib.parse
 from concurrent.futures import ThreadPoolExecutor
 
 from jupyter_server.base.handlers import APIHandler
@@ -508,15 +511,295 @@ class ScanRouteHandler(APIHandler):
             self.finish(json.dumps({"error": "Error scanning directory"}))
 
 
+def _scan_url(fsspec_url):
+    """Run projspec.Project() in a worker thread (blocking I/O safe).
+
+    Uses the shared _executor. This does not compete with make commands
+    because make is only available for local paths (the UI disables make
+    buttons for jfs sources), so there is no thread-pool starvation risk.
+    """
+    project = projspec.Project(fsspec_url)
+    return project.to_dict()
+
+
+class ScanUrlRouteHandler(APIHandler):
+    """Handler for scanning an fsspec URL with projspec.
+
+    Used by the jupyter-fs integration to scan remote/virtual filesystems.
+    Validates that the requested URL matches a configured jupyter-fs resource
+    to prevent arbitrary URL scanning.
+    """
+
+    @tornado.web.authenticated
+    async def post(self):
+        """Scan an fsspec URL and return projspec project data as JSON.
+
+        Request Body (JSON):
+            url: Base fsspec URL from jupyter-fs (e.g., "osfs:///tmp/demo")
+            subpath: Relative path within the resource (default: "")
+
+        Returns:
+            JSON with "project" key containing the to_dict() output,
+            or "error" key if something went wrong.
+        """
+        body = self.get_json_body()
+        if not body or not isinstance(body, dict):
+            self.set_status(400)
+            self.finish(json.dumps({"error": "Request body must be a JSON object"}))
+            return
+
+        url = body.get("url", "")
+        subpath = body.get("subpath", "")
+
+        if not isinstance(url, str) or not isinstance(subpath, (str, type(None))):
+            self.set_status(400)
+            self.finish(json.dumps({"error": "'url' must be a string and 'subpath' must be a string or null"}))
+            return
+
+        subpath = subpath or ""
+
+        if not url:
+            self.set_status(400)
+            self.finish(json.dumps({"error": "Missing required 'url' parameter"}))
+            return
+
+        # Validate the URL against configured jupyter-fs resources
+        contents_manager = self.contents_manager
+        allowed_urls = _get_jfs_resource_urls(contents_manager)
+
+        if allowed_urls is None:
+            self.set_status(404)
+            self.finish(json.dumps({
+                "error": "jupyter-fs MetaManager not available"
+            }))
+            return
+
+        if len(allowed_urls) == 0:
+            self.set_status(422)
+            self.finish(json.dumps({
+                "error": "No jupyter-fs resources are configured. "
+                         "Add a resource in the jupyter-fs settings panel and restart."
+            }))
+            return
+
+        if not _is_url_allowed(url, allowed_urls):
+            self.set_status(403)
+            self.finish(json.dumps({
+                "error": "URL does not match any configured jupyter-fs resource"
+            }))
+            return
+
+        # Use the server-configured allowed URL (not the client-supplied one) as
+        # the base for path construction. This discards any query parameters or
+        # other components that a client might inject to manipulate filesystem
+        # behavior (e.g., fake AWS credentials via ?endpoint_url=...).
+        matched_url = next(
+            (a for a in allowed_urls if _normalize_url(url) == _normalize_url(a)),
+            None,
+        )
+        # matched_url is guaranteed non-None because _is_url_allowed returned True,
+        # but guard defensively.
+        if matched_url is None:
+            self.set_status(500)
+            self.finish(json.dumps({"error": "Internal error resolving allowed URL"}))
+            return
+
+        if subpath:
+            if "\x00" in subpath:
+                self.set_status(400)
+                self.finish(json.dumps({
+                    "error": "Invalid subpath: null bytes not allowed"
+                }))
+                return
+            subpath = subpath.replace("\\", "/")
+
+            # Two-layer traversal check.
+            #
+            # Layer 1 — raw string: catches literal "../", double-encoded
+            # "%252E%252E" (normpath does not decode percent sequences, so
+            # "%252e%252e" stays as-is and does not resolve to "..").
+            #
+            # Layer 2 — once-decoded string: catches single-encoded "%2e%2e"
+            # which would pass the raw check but is decoded by
+            # urllib.parse.unquote inside _pyfs_url_to_fsspec for osfs:// paths,
+            # yielding "../" after the fact.  We do NOT apply the decoded value
+            # as the canonical subpath here (that would corrupt folder names
+            # that legitimately contain literal '%' characters); we only use it
+            # to gate the request.
+            #
+            # Note: double-encoded "%252e%252e" is NOT caught by layer 2
+            # (one unquote gives "%2e%2e", not ".."), and _pyfs_url_to_fsspec
+            # also only unquotes once, so double-encoded sequences are safe.
+            def _has_traversal(s: str) -> bool:
+                n = posixpath.normpath(s.strip("/")) if s.strip("/") else ""
+                return n in ("..", ".") or n.startswith("../") or n.startswith("/")
+
+            if _has_traversal(subpath) or _has_traversal(urllib.parse.unquote(subpath)):
+                self.set_status(400)
+                self.finish(json.dumps({
+                    "error": "Invalid subpath: traversal not allowed"
+                }))
+                return
+
+            subpath = posixpath.normpath(subpath.strip("/"))
+
+        parsed = urllib.parse.urlparse(matched_url)
+        base_path = parsed.path.rstrip("/")
+        new_path = f"{base_path}/{subpath}" if subpath else base_path
+        full_url = urllib.parse.urlunparse(parsed._replace(path=new_path, query="", fragment=""))
+
+        try:
+            fsspec_url = _pyfs_url_to_fsspec(full_url)
+        except ValueError as e:
+            self.set_status(400)
+            self.finish(json.dumps({"error": str(e)}))
+            return
+
+        try:
+            loop = tornado.ioloop.IOLoop.current()
+            project_dict = await loop.run_in_executor(
+                _executor, _scan_url, fsspec_url
+            )
+            self.finish(json.dumps({"project": project_dict}))
+        except Exception as e:
+            logger.error(
+                "projspec error scanning URL %s: %s",
+                _redact_url_credentials(fsspec_url),
+                e,
+                exc_info=True,
+            )
+            self.set_status(500)
+            self.finish(json.dumps({"error": "Error scanning URL"}))
+
+
+def _get_jfs_resource_urls(contents_manager):
+    """Extract configured resource URLs from jupyter-fs MetaManager.
+
+    Returns:
+        A list of URL strings if MetaManager with resources is found,
+        or None if jupyter-fs is not active.
+    """
+    resources = getattr(contents_manager, "_resources", None)
+    if resources is None:
+        resources = getattr(contents_manager, "resources", None)
+    if resources is None:
+        return None
+
+    urls = []
+    for resource in resources:
+        resource_url = None
+        if isinstance(resource, dict):
+            resource_url = resource.get("url")
+        else:
+            resource_url = getattr(resource, "url", None)
+        if resource_url:
+            urls.append(resource_url)
+    return urls
+
+
+def _redact_url_credentials(url):
+    """Return url with any embedded user:password replaced by user:*** for safe logging.
+
+    Handles:
+    - scheme://user:password@host  →  scheme://user:***@host
+    - scheme://:password@host      →  scheme://:***@host  (password-only)
+    - scheme://user:p:ass@host     →  scheme://user:***@host  (password contains ':')
+    """
+    # [^:@/]* allows zero-or-more chars before ':' (covers password-only URLs).
+    # [^@]+ greedily matches up to the last '@', handling ':' inside passwords.
+    return re.sub(r"(://[^:@/]*):[^@]+@", r"\1:***@", url)
+
+
+def _normalize_url(url):
+    """Produce a canonical form for URL comparison.
+
+    Lowercases the scheme, percent-decodes the path, resolves dot segments,
+    and strips trailing slashes. This prevents bypasses via encoding tricks
+    or case differences (e.g., OSFS vs osfs, %6D vs m).
+
+    Query parameters and fragments are intentionally excluded so that
+    server-configured URLs (which never have query params) compare equal to
+    client-submitted base URLs regardless of any injected query parameters.
+    Actual URL construction uses the server-configured matched URL, not the
+    client-supplied one, so injected query params are never forwarded.
+    """
+    parsed = urllib.parse.urlparse(url)
+    scheme = parsed.scheme.lower()
+    netloc = urllib.parse.unquote(parsed.netloc).lower()
+    raw_path = urllib.parse.unquote(parsed.path)
+    # posixpath.normpath('') returns '.' rather than ''; normalise to '' so
+    # that root-level cloud URLs (e.g. s3://bucket with no path) compare
+    # equal to s3://bucket/ (path='/').
+    normed = posixpath.normpath(raw_path) if raw_path else ""
+    path = normed.rstrip("/")
+    return urllib.parse.urlunparse((scheme, netloc, path, "", "", ""))
+
+
+def _is_url_allowed(url, allowed_urls):
+    """Check if a URL matches one of the allowed jupyter-fs resource URLs.
+
+    Both the submitted URL and each allowed URL are normalized to a canonical
+    form (lowercase scheme/host, percent-decoded path, dot segments resolved)
+    before comparison, preventing bypasses via encoding or casing differences.
+    """
+    normalized = _normalize_url(url)
+    for allowed in allowed_urls:
+        if normalized == _normalize_url(allowed):
+            return True
+    return False
+
+
+_FSSPEC_NATIVE_SCHEMES = frozenset({
+    "s3", "gcs", "gs", "az", "abfs", "hdfs",
+    "file", "http", "https", "ftp", "sftp", "smb",
+})
+
+
+def _pyfs_url_to_fsspec(url):
+    """Convert a PyFilesystem2 URL to an fsspec-compatible URL.
+
+    jupyter-fs uses PyFilesystem2 URL schemes (e.g., osfs://)
+    while projspec uses fsspec. This translates between them.
+
+    Raises:
+        ValueError: If the URL scheme is not recognised as either a known
+            PyFilesystem2 scheme or an fsspec-native scheme.
+    """
+    parsed = urllib.parse.urlparse(url)
+    scheme = parsed.scheme.lower()
+
+    if scheme == "osfs":
+        netloc = parsed.netloc
+        # Python's urlparse puts a Windows drive letter in netloc:
+        # urlparse('osfs://C:/path') → netloc='C:', path='/path'
+        if netloc and len(netloc) == 2 and netloc[1] == ":":
+            path = netloc + urllib.parse.unquote(parsed.path)
+            return path  # e.g. "C:/path"
+        if netloc:
+            raise ValueError(
+                f"osfs:// URLs with a host component are not supported: {url!r}. "
+                "Use osfs:///path (triple slash) for local paths."
+            )
+        path = urllib.parse.unquote(parsed.path)
+        return path if path.startswith("/") else "/" + path
+
+    if scheme in _FSSPEC_NATIVE_SCHEMES:
+        return url
+
+    raise ValueError(f"Unsupported filesystem scheme: {scheme}")
+
+
 def setup_route_handlers(web_app):
     host_pattern = ".*$"
     base_url = web_app.settings["base_url"]
 
     scan_route_pattern = url_path_join(base_url, "jupyter-projspec", "scan")
+    scan_url_route_pattern = url_path_join(base_url, "jupyter-projspec", "scan-url")
     make_route_pattern = url_path_join(base_url, "jupyter-projspec", "make")
 
     handlers = [
         (scan_route_pattern, ScanRouteHandler),
+        (scan_url_route_pattern, ScanUrlRouteHandler),
         (make_route_pattern, MakeRouteHandler),
     ]
 

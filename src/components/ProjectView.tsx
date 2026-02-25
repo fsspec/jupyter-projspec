@@ -7,8 +7,8 @@ import { SpecItem } from './SpecItem';
  */
 interface IProjectViewProps {
   project: IProject;
-  /** Relative path from server root for the project. */
-  path: string;
+  /** Relative path from server root for the project, or null if make is unavailable (e.g. jfs). */
+  path: string | null;
   /** Spec name to expand (e.g., 'python_library'). */
   expandedSpecName?: string | null;
   /** Unique ID that changes on each expand request. */

@@ -12,8 +12,8 @@ const MAX_OUTPUT_LENGTH = 10000;
  */
 interface IArtifactsViewProps {
   artifacts: Record<string, IArtifact | string>;
-  /** Relative path from server root for the project. */
-  path: string;
+  /** Relative path from server root, or null if make is unavailable (e.g. remote filesystem). */
+  path: string | null;
   /** The projspec spec type (e.g., "python_library"). */
   specType: string;
 }
@@ -61,14 +61,16 @@ function truncateOutput(text: string): string {
 
 /**
  * Shared hook for running a make request and tracking state.
+ * When path is null, make is unavailable (remote filesystem) and handleMake is a no-op.
  */
 function useMakeArtifact(
-  path: string,
+  path: string | null,
   specType: string,
   artifactName: string
 ): {
   isRunning: boolean;
   result: string | null;
+  canMake: boolean;
   handleMake: () => Promise<void>;
 } {
   const [isRunning, setIsRunning] = useState(false);
@@ -84,6 +86,9 @@ function useMakeArtifact(
   }, []);
 
   const handleMake = async () => {
+    if (path === null) {
+      return;
+    }
     // Use a ref for synchronous double-click prevention.
     // React state updates are async, so checking `isRunning` alone
     // cannot prevent rapid duplicate invocations.
@@ -130,7 +135,7 @@ function useMakeArtifact(
     }
   };
 
-  return { isRunning, result, handleMake };
+  return { isRunning, result, canMake: path !== null, handleMake };
 }
 
 /**
@@ -191,8 +196,8 @@ function MakeButton({
 interface IStringArtifactItemProps {
   name: string;
   artifact: string;
-  /** Relative path from server root for the project. */
-  path: string;
+  /** Relative path from server root, or null if make is unavailable. */
+  path: string | null;
   /** The projspec spec type (e.g., "python_library"). */
   specType: string;
 }
@@ -208,7 +213,7 @@ function StringArtifactItem({
   specType
 }: IStringArtifactItemProps): React.ReactElement {
   const { cmd, status } = parseCompactArtifact(artifact);
-  const { isRunning, result, handleMake } = useMakeArtifact(
+  const { isRunning, result, canMake, handleMake } = useMakeArtifact(
     path,
     specType,
     name
@@ -226,11 +231,13 @@ function StringArtifactItem({
             {status}
           </span>
         )}
-        <MakeButton
-          isRunning={isRunning}
-          onClick={handleMake}
-          artifactName={name}
-        />
+        {canMake && (
+          <MakeButton
+            isRunning={isRunning}
+            onClick={handleMake}
+            artifactName={name}
+          />
+        )}
       </div>
       <code
         className="jp-projspec-artifact-cmd"
@@ -249,8 +256,8 @@ function StringArtifactItem({
 interface IObjectArtifactItemProps {
   name: string;
   artifact: IArtifact;
-  /** Relative path from server root for the project. */
-  path: string;
+  /** Relative path from server root, or null if make is unavailable. */
+  path: string | null;
   /** The projspec spec type (e.g., "python_library"). */
   specType: string;
 }
@@ -270,7 +277,7 @@ function ObjectArtifactItem({
     (typeof artifact.cmd === 'string'
       ? artifact.cmd.trim() !== ''
       : Array.isArray(artifact.cmd) && artifact.cmd.length > 0);
-  const { isRunning, result, handleMake } = useMakeArtifact(
+  const { isRunning, result, canMake, handleMake } = useMakeArtifact(
     path,
     specType,
     name
@@ -297,7 +304,7 @@ function ObjectArtifactItem({
             {artifact.status}
           </span>
         )}
-        {hasCmd && (
+        {canMake && hasCmd && (
           <MakeButton
             isRunning={isRunning}
             onClick={handleMake}

@@ -27,6 +27,14 @@ A dedicated right sidebar panel provides detailed project information:
 - **Contents** — View metadata, dependencies, environment specs, and more
 - **Artifacts** — See buildable outputs like wheels, conda packages, documentation
 
+### 📁 jupyter-fs Integration
+
+If [jupyter-fs](https://github.com/jpmorganchase/jupyter-fs) is installed, projspec chips appear in each jupyter-fs sidebar automatically. No extra configuration is needed — the extension detects jupyter-fs at runtime and injects chips below the toolbar in every tree-finder sidebar.
+
+- **Automatic detection** — If jupyter-fs is not installed, this feature is silently disabled
+- **Per-resource scanning** — Each sidebar scans its own fsspec URL via the `/scan-url` backend endpoint
+- **Directory navigation** — Chips update as you browse subdirectories within a resource by observing the tree-finder breadcrumbs
+
 ### 🎨 Supported Project Types
 
 jupyter-projspec recognizes many project types through projspec:
@@ -46,6 +54,8 @@ jupyter-projspec recognizes many project types through projspec:
 - JupyterLab >= 4.0.0
 - Python >= 3.10
 - [projspec](https://github.com/fsspec/projspec)
+- [jupyter-fs](https://github.com/jpmorganchase/jupyter-fs) (optional, for remote filesystem support)
+
 
 ## Install
 
@@ -162,17 +172,19 @@ See [ui-tests/README.md](./ui-tests/README.md) for details.
 ```
 jupyter-projspec/
 ├── src/                          # TypeScript frontend
-│   ├── index.ts                  # Extension entry point
+│   ├── index.ts                  # Extension entry point (both plugins)
+│   ├── api.ts                    # Backend API client functions
 │   ├── components/               # React components
 │   │   ├── ProjspecPanelComponent.tsx
 │   │   ├── ProjectView.tsx
 │   │   ├── SpecItem.tsx
 │   │   ├── ContentsView.tsx
 │   │   ├── ArtifactsView.tsx
-│   │   └── ProjspecChips.tsx     # File browser chips
+│   │   └── ProjspecChips.tsx     # Shared chips component
 │   └── widgets/
 │       ├── ProjspecPanel.ts      # Sidebar panel widget
-│       └── ProjspecChipsWidget.ts
+│       ├── ProjspecChipsWidget.ts # Chips in default file browser
+│       └── JfsChipsWidget.ts     # Chips in jupyter-fs sidebars
 ├── jupyter_projspec/             # Python backend
 │   ├── __init__.py               # Server extension setup
 │   └── routes.py                 # API route handlers
@@ -182,19 +194,22 @@ jupyter-projspec/
 
 ### API Endpoints
 
-| Endpoint                 | Method | Description                               |
-| ------------------------ | ------ | ----------------------------------------- |
-| `/jupyter-projspec/scan` | GET    | Scan a directory and return projspec data |
+| Endpoint                     | Method | Description                                                  |
+| ---------------------------- | ------ | ------------------------------------------------------------ |
+| `/jupyter-projspec/scan`     | GET    | Scan a local directory and return projspec data              |
+| `/jupyter-projspec/scan-url` | POST   | Scan an fsspec URL (for jupyter-fs) and return projspec data |
+| `/jupyter-projspec/make`     | POST   | Execute an artifact's build command via projspec             |
 
 ## Roadmap
 
 Future enhancements being considered:
 
-- [ ] **MAKE buttons** — Execute artifact builds directly from the UI
-- [ ] **Build output display** — Show stdout/stderr from artifact builds
+- [x] **MAKE buttons** — Execute artifact builds directly from the UI
+- [x] **Build output display** — Show stdout/stderr from artifact builds
+- [x] **jupyter-fs integration** — Projspec chips in jupyter-fs sidebars
 - [ ] **File browser navigation** — Click built artifacts to reveal them
 - [ ] **Real-time streaming** — Live output for long-running builds
-- [ ] **jupyter-fsspec integration** — Support for remote filesystems
+- [ ] **Jupyter Notebook 7 support** — Currently requires JupyterLab (`ILabShell`); Notebook 7 uses `INotebookShell`
 
 ## AI Coding Assistant Support
 
