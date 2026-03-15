@@ -7,3 +7,5 @@ export { SpecItem } from './SpecItem';
 export { ContentsView } from './ContentsView';
 export { ArtifactsView } from './ArtifactsView';
 export { ProjspecChips } from './ProjspecChips';
+export { CreateProjectDialogBody } from './CreateProjectDialog';
+export type { ICreateDialogSelection } from './CreateProjectDialog';

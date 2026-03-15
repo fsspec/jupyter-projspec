@@ -47,6 +47,13 @@ export class ProjspecChipsWidget extends ReactWidget {
   }
 
   /**
+   * Force a re-scan by triggering a re-render at the current path.
+   */
+  refreshScan(): void {
+    this.update();
+  }
+
+  /**
    * Handle visibility change from the React component.
    * Shows or hides the widget container based on whether there are specs.
    */

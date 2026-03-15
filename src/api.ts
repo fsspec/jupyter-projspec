@@ -1,4 +1,5 @@
 import { ServerConnection } from '@jupyterlab/services';
+import { ICreatableType, ICreateRequest, ICreateResponse } from './types';
 import { requestAPI } from './request';
 
 /**
@@ -26,6 +27,28 @@ interface IMakeResponse {
 }
 
 /**
+ * Extract a user-friendly error message from a caught error.
+ */
+function extractErrorMessage(err: unknown, context: string): string {
+  if (err instanceof ServerConnection.ResponseError) {
+    const status = err.response.status;
+    let detail = err.message;
+
+    if (
+      typeof detail === 'string' &&
+      (detail.includes('<!DOCTYPE') || detail.includes('<html'))
+    ) {
+      detail = `HTML error page (${detail.substring(0, 100)}...)`;
+    }
+
+    return `${context} (${status}): ${detail}`;
+  }
+
+  const msg = err instanceof Error ? err.message : 'Unknown error';
+  return `${context}: ${msg}`;
+}
+
+/**
  * Execute an artifact's build command via the backend.
  *
  * The backend resolves the actual shell command from projspec's artifact
@@ -46,22 +69,64 @@ export async function make(request: IMakeRequest): Promise<IMakeResponse> {
     }
     return response;
   } catch (err) {
-    if (err instanceof ServerConnection.ResponseError) {
-      const status = err.response.status;
-      let detail = err.message;
+    throw new Error(extractErrorMessage(err, 'Make request failed'));
+  }
+}
 
-      // Truncate HTML responses for cleaner error messages
-      if (
-        typeof detail === 'string' &&
-        (detail.includes('<!DOCTYPE') || detail.includes('<html'))
-      ) {
-        detail = `HTML error page (${detail.substring(0, 100)}...)`;
-      }
+/**
+ * Module-level cache for creatable types.
+ * The list is static for the lifetime of the server, so we fetch once.
+ */
+let creatableTypesCache: ICreatableType[] | null = null;
 
-      throw new Error(`Make request failed (${status}): ${detail}`);
+/**
+ * Fetch the list of project types that support creation.
+ *
+ * Results are cached after the first successful call since the
+ * projspec registry does not change at runtime.
+ */
+export async function fetchCreatableTypes(): Promise<ICreatableType[]> {
+  if (creatableTypesCache !== null) {
+    return creatableTypesCache;
+  }
+
+  try {
+    const response = await requestAPI<{ types: ICreatableType[] }>(
+      'creatable-types',
+      { method: 'GET' }
+    );
+    if (!response?.types) {
+      throw new Error('Empty response from server');
     }
+    creatableTypesCache = response.types;
+    return creatableTypesCache;
+  } catch (err) {
+    throw new Error(
+      extractErrorMessage(err, 'Failed to fetch creatable types')
+    );
+  }
+}
 
-    const msg = err instanceof Error ? err.message : 'Unknown error';
-    throw new Error(`Make request failed: ${msg}`);
+/**
+ * Create a new project type in the specified directory.
+ *
+ * @param request - The path and type_name for creation
+ * @returns The list of files created by projspec
+ */
+export async function createProject(
+  request: ICreateRequest
+): Promise<ICreateResponse> {
+  try {
+    const response = await requestAPI<ICreateResponse>('create', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(request)
+    });
+    if (response === undefined) {
+      throw new Error('Create request returned an empty response');
+    }
+    return response;
+  } catch (err) {
+    throw new Error(extractErrorMessage(err, 'Create project failed'));
   }
 }

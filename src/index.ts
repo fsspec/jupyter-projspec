@@ -3,10 +3,20 @@ import {
   JupyterFrontEnd,
   JupyterFrontEndPlugin
 } from '@jupyterlab/application';
+import { ICommandPalette, Notification, showDialog, Dialog } from '@jupyterlab/apputils';
 import { IDefaultFileBrowser } from '@jupyterlab/filebrowser';
 import { PanelLayout, Widget } from '@lumino/widgets';
+import React from 'react';
 
+import { createProject } from './api';
+import {
+  CreateProjectDialogBody,
+  ICreateDialogSelection
+} from './components/CreateProjectDialog';
 import { projspecIcon } from './icon';
+import { requestAPI } from './request';
+import { getSpecDisplayName } from './specInfo';
+import { IScanResponse } from './types';
 import { ProjspecPanel } from './widgets/ProjspecPanel';
 import { ProjspecChipsWidget } from './widgets/ProjspecChipsWidget';
 
@@ -21,9 +31,32 @@ const PLUGIN_ID = 'jupyter-projspec:plugin';
 const PANEL_ID = 'projspec-panel';
 
 /**
+ * Command ID for creating a new project type.
+ */
+const CREATE_COMMAND_ID = 'jupyter-projspec:create-project';
+
+/**
  * CSS ID for the chips container element, used for idempotency.
  */
 const CHIPS_CONTAINER_ID = 'jp-projspec-chips-container';
+
+/**
+ * Fetch the list of existing spec names for a given path.
+ */
+async function getExistingSpecs(path: string): Promise<string[]> {
+  try {
+    const response = await requestAPI<IScanResponse>(
+      `scan?path=${encodeURIComponent(path)}`,
+      { method: 'GET' }
+    );
+    if (response?.project?.specs) {
+      return Object.keys(response.project.specs);
+    }
+  } catch {
+    // Fall back to empty if scan fails
+  }
+  return [];
+}
 
 /**
  * Initialization data for the jupyter-projspec extension.
@@ -33,16 +66,90 @@ const plugin: JupyterFrontEndPlugin<void> = {
   description: 'A Jupyter interface for projspec',
   autoStart: true,
   requires: [IDefaultFileBrowser],
-  optional: [ILayoutRestorer],
+  optional: [ILayoutRestorer, ICommandPalette],
   activate: (
     app: JupyterFrontEnd,
     fileBrowser: IDefaultFileBrowser,
-    restorer: ILayoutRestorer | null
+    restorer: ILayoutRestorer | null,
+    palette: ICommandPalette | null
   ) => {
     // Create the projspec panel widget for the right sidebar
     const panel = new ProjspecPanel();
     panel.id = PANEL_ID;
     panel.title.icon = projspecIcon;
+
+    // Create chips widget for the file browser
+    // Clicking a chip opens/focuses the sidebar panel and expands the spec
+    const chipsWidget = new ProjspecChipsWidget(fileBrowser, specName => {
+      panel.expandSpec(specName);
+      app.shell.activateById(PANEL_ID);
+    });
+
+    // Register the create-project command
+    app.commands.addCommand(CREATE_COMMAND_ID, {
+      label: 'Initialize Project Type',
+      caption: 'Initialize a new project type in the current directory',
+      icon: projspecIcon,
+      execute: async () => {
+        const path = fileBrowser.model.path;
+        const existingSpecs = await getExistingSpecs(path);
+
+        const selectionRef: React.MutableRefObject<ICreateDialogSelection> = {
+          current: { selectedType: null }
+        };
+
+        const body = React.createElement(CreateProjectDialogBody, {
+          existingSpecs,
+          selectionRef
+        });
+
+        const result = await showDialog({
+          title: 'Create Project',
+          body,
+          buttons: [
+            Dialog.cancelButton(),
+            Dialog.okButton({ label: 'Create' })
+          ]
+        });
+
+        if (!result.button.accept) {
+          return;
+        }
+
+        const selectedType = selectionRef.current.selectedType;
+        if (!selectedType) {
+          return;
+        }
+
+        try {
+          const response = await createProject({ path, type_name: selectedType });
+
+          // Refresh both the sidebar panel and the chips widget
+          panel.refreshScan();
+          chipsWidget.refreshScan();
+
+          const displayName = getSpecDisplayName(selectedType);
+          const fileCount = response.created_files.length;
+          Notification.success(
+            `Created ${displayName} (${fileCount} file${fileCount !== 1 ? 's' : ''})`,
+            { autoClose: 5000 }
+          );
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : 'Unknown error';
+          await showDialog({
+            title: 'Create Failed',
+            body: msg,
+            buttons: [Dialog.okButton()]
+          });
+          return;
+        }
+      }
+    });
+
+    // Wire the "+" button in the sidebar to the create command
+    panel.onCreateProject = () => {
+      void app.commands.execute(CREATE_COMMAND_ID);
+    };
 
     // Function to update the panel with the current path
     const updatePath = () => {
@@ -64,13 +171,19 @@ const plugin: JupyterFrontEndPlugin<void> = {
       restorer.add(panel, PANEL_ID);
     }
 
-    // Create chips widget for the file browser
-    // Clicking a chip opens/focuses the sidebar panel and expands the spec
-    const chipsWidget = new ProjspecChipsWidget(fileBrowser, specName => {
-      // Expand the clicked spec in the panel
-      panel.expandSpec(specName);
-      // Open/focus the sidebar panel
-      app.shell.activateById(PANEL_ID);
+    // Add to command palette
+    if (palette) {
+      palette.addItem({
+        command: CREATE_COMMAND_ID,
+        category: 'Project Spec'
+      });
+    }
+
+    // Add context menu entry for directories in the file browser
+    app.contextMenu.addItem({
+      command: CREATE_COMMAND_ID,
+      selector: '.jp-DirListing-item[data-isdir="true"]',
+      rank: 10
     });
 
     // Clean up the container div when the chips widget is disposed
