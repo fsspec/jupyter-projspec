@@ -72,3 +72,34 @@ export interface IScanResponse {
   project?: IProject;
   error?: string;
 }
+
+/**
+ * A project type that supports creation via projspec.
+ * Returned by the creatable-types endpoint.
+ */
+export interface ICreatableType {
+  /** Snake_case type name (e.g., "git_repo", "python_library"). */
+  name: string;
+  /** Description from the ProjectSpec class docstring. */
+  doc: string;
+  /** URL to the specification documentation. */
+  link: string;
+}
+
+/**
+ * Request body for the create endpoint.
+ */
+export interface ICreateRequest {
+  /** Relative path from server root (empty string for root). */
+  path: string;
+  /** The projspec type to create (e.g., "git_repo", "pixi"). */
+  type_name: string;
+}
+
+/**
+ * Response from the create endpoint.
+ */
+export interface ICreateResponse {
+  /** List of file paths that were created. */
+  created_files: string[];
+}

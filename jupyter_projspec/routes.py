@@ -88,6 +88,47 @@ class ArtifactLookupError(ValueError):
     """Raised when a spec type or artifact name cannot be found in projspec."""
 
 
+class TypeNotCreatableError(ValueError):
+    """Raised when a requested project type does not support creation."""
+
+
+# Cached list of project types that support creation.
+# Computed once on first access since the projspec registry is stable at runtime.
+_creatable_types_cache: list[dict] | None = None
+
+
+def _get_creatable_types() -> list[dict]:
+    """Return the list of project types that have implemented _create.
+
+    Results are cached at module level since the registry does not change
+    during the lifetime of the server process.
+    """
+    global _creatable_types_cache
+    if _creatable_types_cache is not None:
+        return _creatable_types_cache
+
+    from projspec.proj.base import ProjectSpec, registry
+
+    result = []
+    for name, cls in sorted(registry.items()):
+        if not issubclass(cls, ProjectSpec):
+            continue
+        if cls._create is ProjectSpec._create:
+            continue
+        result.append({
+            "name": name,
+            "doc": (cls.__doc__ or "").strip(),
+            "link": getattr(cls, "spec_doc", ""),
+        })
+    _creatable_types_cache = result
+    return _creatable_types_cache
+
+
+def _is_type_creatable(type_name: str) -> bool:
+    """Check whether a given type name is in the creatable types list."""
+    return any(t["name"] == type_name for t in _get_creatable_types())
+
+
 def resolve_path(contents_manager: ContentsManager, relative_path: str) -> str:
     """Validate and resolve a relative path to an absolute path within the server root.
 
@@ -508,16 +549,127 @@ class ScanRouteHandler(APIHandler):
             self.finish(json.dumps({"error": "Error scanning directory"}))
 
 
+class CreatableTypesRouteHandler(APIHandler):
+    """Handler that returns the list of project types supporting creation.
+
+    The result is computed once from projspec's registry and cached for the
+    lifetime of the server process.
+    """
+
+    @tornado.web.authenticated
+    def get(self):
+        """Return all creatable project types.
+
+        Returns:
+            JSON with "types" key containing a list of
+            {name, doc, link} objects.
+        """
+        try:
+            types = _get_creatable_types()
+            self.finish(json.dumps({"types": types}))
+        except Exception as e:
+            logger.error("Error fetching creatable types: %s", e, exc_info=True)
+            self.set_status(500)
+            self.finish(json.dumps({"error": "Failed to retrieve creatable types"}))
+
+
+class CreateRouteHandler(APIHandler):
+    """Handler for creating new project types in a directory via projspec."""
+
+    @tornado.web.authenticated
+    async def post(self):
+        """Create a new project type in the specified directory.
+
+        Request Body:
+            path: Relative path from server root (empty string for root)
+            type_name: The projspec type to create (e.g., "git_repo", "pixi")
+
+        Returns:
+            JSON with "created_files" listing the new files.
+        """
+        try:
+            data = self.get_json_body()
+        except (json.JSONDecodeError, ValueError):
+            self.set_status(400)
+            self.finish(json.dumps({"error": "Invalid or missing JSON body"}))
+            return
+
+        if not isinstance(data, dict):
+            self.set_status(400)
+            self.finish(json.dumps({"error": "Request body must be a JSON object"}))
+            return
+
+        type_name = data.get("type_name")
+        if not isinstance(type_name, str) or not type_name.strip():
+            self.set_status(400)
+            self.finish(json.dumps({"error": "Missing or invalid required field: type_name"}))
+            return
+
+        path = data.get("path", "")
+        if not isinstance(path, str):
+            self.set_status(400)
+            self.finish(json.dumps({"error": "Field 'path' must be a string"}))
+            return
+
+        try:
+            result = await tornado.ioloop.IOLoop.current().run_in_executor(
+                _executor, self._run_create, path, type_name.strip()
+            )
+            self.finish(json.dumps(result))
+        except PathSecurityError as e:
+            self.set_status(403)
+            self.finish(json.dumps({"error": str(e)}))
+        except PathNotFoundError as e:
+            self.set_status(404)
+            self.finish(json.dumps({"error": str(e)}))
+        except PathNotDirectoryError as e:
+            self.set_status(400)
+            self.finish(json.dumps({"error": str(e)}))
+        except TypeNotCreatableError as e:
+            self.set_status(400)
+            self.finish(json.dumps({"error": str(e)}))
+        except Exception as e:
+            logger.error("Create project error: %s", e, exc_info=True)
+            self.set_status(500)
+            self.finish(json.dumps({"error": f"Failed to create project type: {e}"}))
+
+    def _run_create(self, path: str, type_name: str) -> dict:
+        """Resolve path and run projspec create (called in thread pool)."""
+        absolute_path = resolve_path(self.contents_manager, path)
+
+        if not _is_type_creatable(type_name):
+            raise TypeNotCreatableError(
+                f"Project type '{type_name}' does not support creation"
+            )
+
+        project = projspec.Project(absolute_path)
+
+        if type_name in project.specs:
+            raise TypeNotCreatableError(
+                f"Project type '{type_name}' already exists in this directory"
+            )
+
+        # project.create() returns the list of newly created file paths
+        created_files = project.create(type_name)
+        return {"created_files": [str(f) for f in created_files]}
+
+
 def setup_route_handlers(web_app):
     host_pattern = ".*$"
     base_url = web_app.settings["base_url"]
 
     scan_route_pattern = url_path_join(base_url, "jupyter-projspec", "scan")
     make_route_pattern = url_path_join(base_url, "jupyter-projspec", "make")
+    creatable_types_pattern = url_path_join(
+        base_url, "jupyter-projspec", "creatable-types"
+    )
+    create_pattern = url_path_join(base_url, "jupyter-projspec", "create")
 
     handlers = [
         (scan_route_pattern, ScanRouteHandler),
         (make_route_pattern, MakeRouteHandler),
+        (creatable_types_pattern, CreatableTypesRouteHandler),
+        (create_pattern, CreateRouteHandler),
     ]
 
     web_app.add_handlers(host_pattern, handlers)

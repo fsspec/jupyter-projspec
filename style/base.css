@@ -20,6 +20,9 @@
 /* Header Styles */
 
 .jp-projspec-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
   font-size: var(--jp-ui-font-size1);
   font-weight: 600;
   color: var(--jp-ui-font-color0);
@@ -28,6 +31,43 @@
   border-bottom: 1px solid var(--jp-border-color2);
   text-transform: uppercase;
   letter-spacing: 0.5px;
+}
+
+/* Create "+" button in the sidebar header */
+
+.jp-projspec-create-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 1px solid var(--jp-border-color2);
+  border-radius: 4px;
+  background: var(--jp-layout-color2);
+  color: var(--jp-ui-font-color1);
+  font-size: 16px;
+  font-weight: 400;
+  line-height: 1;
+  cursor: pointer;
+  transition:
+    background 0.15s ease,
+    border-color 0.15s ease;
+}
+
+.jp-projspec-create-button:hover {
+  background: var(--jp-layout-color3);
+  border-color: var(--jp-brand-color1);
+  color: var(--jp-brand-color1);
+}
+
+.jp-projspec-create-button:active {
+  transform: scale(0.95);
+}
+
+.jp-projspec-create-button:focus {
+  outline: 2px solid var(--jp-brand-color1);
+  outline-offset: 1px;
 }
 
 .jp-projspec-path {
@@ -672,4 +712,111 @@
 
 .jp-projspec-make-button:active {
   transform: translateY(1px);
+}
+
+/* ==========================================================================
+   Create Project Dialog
+   ========================================================================== */
+
+.jp-projspec-create-dialog-widget {
+  min-width: 400px;
+}
+
+.jp-projspec-create-dialog-body {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.jp-projspec-create-search {
+  width: 100%;
+  padding: 8px 12px;
+  border: 1px solid var(--jp-border-color2);
+  border-radius: 4px;
+  background: var(--jp-layout-color1);
+  color: var(--jp-ui-font-color0);
+  font-size: var(--jp-ui-font-size1);
+  font-family: var(--jp-ui-font-family);
+  outline: none;
+  box-sizing: border-box;
+}
+
+.jp-projspec-create-search:focus {
+  border-color: var(--jp-brand-color1);
+  box-shadow: 0 0 0 1px var(--jp-brand-color1);
+}
+
+.jp-projspec-create-search::placeholder {
+  color: var(--jp-ui-font-color3, var(--jp-ui-font-color2));
+}
+
+.jp-projspec-create-type-list {
+  max-height: 320px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  border: 1px solid var(--jp-border-color2);
+  border-radius: 4px;
+  padding: 4px;
+}
+
+.jp-projspec-create-type-item {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px 10px;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: background 0.1s ease;
+}
+
+.jp-projspec-create-type-item:hover {
+  background: var(--jp-layout-color2);
+}
+
+.jp-projspec-create-type-selected {
+  background: var(--jp-brand-color3, rgb(33 150 243 / 15%));
+  outline: 2px solid var(--jp-brand-color1);
+  outline-offset: -2px;
+}
+
+.jp-projspec-create-type-selected:hover {
+  background: var(--jp-brand-color3, rgb(33 150 243 / 20%));
+}
+
+.jp-projspec-create-type-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 10px;
+  border-radius: 100px;
+  font-size: var(--jp-ui-font-size1);
+  font-weight: 600;
+  width: fit-content;
+}
+
+.jp-projspec-create-type-icon {
+  font-size: 14px;
+  line-height: 1;
+}
+
+.jp-projspec-create-type-doc {
+  font-size: var(--jp-ui-font-size0);
+  color: var(--jp-ui-font-color2);
+  line-height: 1.4;
+  padding-left: 2px;
+}
+
+.jp-projspec-create-loading,
+.jp-projspec-create-error,
+.jp-projspec-create-empty {
+  padding: 16px;
+  text-align: center;
+  color: var(--jp-ui-font-color2);
+  font-size: var(--jp-ui-font-size1);
+}
+
+.jp-projspec-create-error {
+  color: var(--jp-error-color1, #d32f2f);
 }

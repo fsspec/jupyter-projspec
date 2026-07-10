@@ -26,6 +26,10 @@ interface IProjspecPanelComponentProps {
   expandedSpecName?: string | null;
   /** Unique ID that changes on each expand request, ensures expansion always triggers. */
   expandRequestId?: number;
+  /** Bumped to force a re-scan without a path change. */
+  scanRevision?: number;
+  /** Callback invoked when the user clicks the "+" create button. */
+  onCreateProject?: () => void;
 }
 
 /**
@@ -65,7 +69,9 @@ function ErrorDisplay({ message }: { message: string }): React.ReactElement {
 export function ProjspecPanelComponent({
   path,
   expandedSpecName,
-  expandRequestId
+  expandRequestId,
+  scanRevision,
+  onCreateProject
 }: IProjspecPanelComponentProps): React.ReactElement {
   const [state, setState] = React.useState<IPanelState>({
     loading: true,
@@ -192,11 +198,22 @@ export function ProjspecPanelComponent({
         abortControllerRef.current.abort();
       }
     };
-  }, [path, scanDirectory]);
+  }, [path, scanRevision, scanDirectory]);
 
   return (
     <div className="jp-projspec-panel-content">
-      <div className="jp-projspec-header">Project Spec</div>
+      <div className="jp-projspec-header">
+        <span>Project Spec</span>
+        {onCreateProject && (
+          <button
+            className="jp-projspec-create-button"
+            title="Initialize project type..."
+            onClick={onCreateProject}
+          >
+            +
+          </button>
+        )}
+      </div>
       <div className="jp-projspec-path">{formatPath(path)}</div>
 
       {state.loading && <LoadingSpinner />}

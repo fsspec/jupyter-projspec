@@ -15,6 +15,8 @@ export class ProjspecPanel extends ReactWidget {
   private _currentPath: string;
   private _expandedSpecName: string | null;
   private _expandRequestId: number;
+  private _scanRevision: number;
+  private _onCreateProject: (() => void) | null;
 
   constructor() {
     super();
@@ -25,6 +27,8 @@ export class ProjspecPanel extends ReactWidget {
     this._currentPath = '';
     this._expandedSpecName = null;
     this._expandRequestId = 0;
+    this._scanRevision = 0;
+    this._onCreateProject = null;
   }
 
   /**
@@ -35,16 +39,33 @@ export class ProjspecPanel extends ReactWidget {
   }
 
   /**
+   * Set the callback invoked when the user clicks the "+" create button.
+   */
+  set onCreateProject(callback: (() => void) | null) {
+    this._onCreateProject = callback;
+    this.update();
+  }
+
+  /**
    * Update the displayed path and trigger a re-render.
    * @param path - The new path to scan.
    */
   updatePath(path: string): void {
     if (this._currentPath !== path) {
       this._currentPath = path;
-      // Clear expanded spec when path changes
       this._expandedSpecName = null;
       this.update();
     }
+  }
+
+  /**
+   * Force a re-scan of the current directory.
+   * Bumps an internal revision counter so the React effect re-fires
+   * even though the path hasn't changed.
+   */
+  refreshScan(): void {
+    this._scanRevision++;
+    this.update();
   }
 
   /**
@@ -53,7 +74,6 @@ export class ProjspecPanel extends ReactWidget {
    */
   expandSpec(specName: string): void {
     this._expandedSpecName = specName;
-    // Increment request ID to ensure expansion triggers even if same spec is clicked
     this._expandRequestId++;
     this.update();
   }
@@ -65,7 +85,9 @@ export class ProjspecPanel extends ReactWidget {
     return React.createElement(ProjspecPanelComponent, {
       path: this._currentPath,
       expandedSpecName: this._expandedSpecName,
-      expandRequestId: this._expandRequestId
+      expandRequestId: this._expandRequestId,
+      scanRevision: this._scanRevision,
+      onCreateProject: this._onCreateProject ?? undefined
     });
   }
 }
